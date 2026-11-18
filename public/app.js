@@ -2,7 +2,7 @@ import { h, render } from 'https://cdn.jsdelivr.net/npm/preact@11.2.0/+esm';
 import { useState, useEffect, useRef, useMemo, useCallback } from 'https://cdn.jsdelivr.net/npm/preact@11.2.0/hooks/+esm';
 import htm from 'https://cdn.jsdelivr.net/npm/htm@3.1.1/+esm';
 import { Parents } from './parents.js';
-import { useVoice, speak, dictate, primeSpeech } from './voice.js';
+import { useVoice, speak, dictate, primeSpeech, prewarm } from './voice.js';
 import { TRIVIA, JOKES, FACTS, WOULD_YOU_RATHER, GEAR } from './fun.js';
 import { BrainCard } from './brain.js';
 export const html = htm.bind(h);
@@ -170,7 +170,7 @@ export const mascotLine = (b, now) => mascotSay(b, now).text;
 // The mascot's speech bubble. Tap a question to see and hear the answer; tap again for something new.
 function MascotBubble({ b, now, style }) {
   const [skip, setSkip] = useState(0); const [open, setOpen] = useState(false);
-  const line = mascotSay(b, now, skip); useEffect(() => setOpen(false), [line.text]);
+  const line = mascotSay(b, now, skip); useEffect(() => { setOpen(false); if (line.answer && b.me?.kind !== 'parent') prewarm([line.answer]); }, [line.text]);
   const tap = (e) => { e.stopPropagation(); if (line.answer && !open) { setOpen(true); chime('ok'); speak(line.answer.replace(/[\p{Extended_Pictographic}‍️]/gu, '')); } else if (!line.urgent) { setSkip((n) => n + 1); } else speak(line.text.replace(/[\p{Extended_Pictographic}‍️]/gu, '')); };
   return html`<button class=${'bubble' + (line.urgent ? ' urgent' : '') + (line.answer ? ' ask' : '')} style=${style} onClick=${tap}>${line.text}${line.answer ? (open ? html`<b class="ans">${line.answer}</b>` : html`<small class="tapme">${line.kind === 'joke' ? 'Tap me for the funny part!' : 'Tap me for the answer!'}</small>`) : ''}</button>`;
 }

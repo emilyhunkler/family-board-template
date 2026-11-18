@@ -12,10 +12,31 @@ const player = typeof Audio !== 'undefined' ? new Audio() : null; if (player) pl
 function silentWav() { const n = 800, b = new ArrayBuffer(44 + n * 2), d = new DataView(b); const w = (o, s) => [...s].forEach((c, i) => d.setUint8(o + i, c.charCodeAt(0))); w(0, 'RIFF'); d.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt '); d.setUint32(16, 16, true); d.setUint16(20, 1, true); d.setUint16(22, 1, true); d.setUint32(24, 8000, true); d.setUint32(28, 16000, true); d.setUint16(32, 2, true); d.setUint16(34, 16, true); w(36, 'data'); d.setUint32(40, n * 2, true); return URL.createObjectURL(new Blob([b], { type: 'audio/wav' })); }
 let primed = false; export function primeSpeech() { if (primed) return; primed = true; try { if (player) { player.src = silentWav(); player.play().catch(() => {}); } if ('speechSynthesis' in window) { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } } catch {} }
 function deviceSpeak(text, vol) { if (!('speechSynthesis' in window)) return; try { if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); const v = bestVoice(); if (v) u.voice = v; u.rate = cfgRef.rate; u.pitch = cfgRef.pitch; u.lang = (v && v.lang) || cfgRef.language; u.volume = vol; setTimeout(() => { try { speechSynthesis.resume(); speechSynthesis.speak(u); } catch {} }, 60); } catch {} }
-// Plays the natural cloud voice; falls back to the device voice if it cannot load.
-export function cloudSpeak(text, voice, vol = 1) { return new Promise((resolve) => { if (!player) return resolve(false); let done = false; const fin = (ok) => { if (!done) { done = true; resolve(ok); } }; player.onended = () => fin(true); player.onerror = () => fin(false); player.volume = vol; player.src = `/api/tts?v=${encodeURIComponent(voice || cfgRef.cloudVoice || 'thalia')}&t=${encodeURIComponent(text)}`; player.play().then(() => setTimeout(() => fin(true), 100)).catch(() => fin(false)); setTimeout(() => fin(!player.paused), 6000); }); }
+// Only one voice at a time: each new line stops whatever is still talking or loading, and a line
+// that has been replaced never falls back to the device voice later.
+let turn = 0, cloudId = 0;
+function hush() { cloudId++; try { if (player) { player.onended = player.onerror = player.onplaying = null; player.pause(); } } catch {} try { if ('speechSynthesis' in window) speechSynthesis.cancel(); } catch {} }
+// Plays the natural cloud voice. It's made on demand, so a long sentence can take several seconds the first time.
+// Resolves true once it has played, false if it never started (then the audio is stopped for good, so it
+// can't start late on top of the device voice).
+export function cloudSpeak(text, voice, vol = 1, maxWait = 15000) { return new Promise((resolve) => {
+  if (!player) return resolve(false); let done = false, started = false; const me = ++cloudId;
+  const fin = (ok) => { if (done) return; done = true; clearTimeout(t); if (!ok && !started && me === cloudId) { try { player.onplaying = null; player.pause(); player.removeAttribute('src'); player.load(); } catch {} } resolve(ok); };
+  player.onplaying = () => { started = true; }; player.onended = () => fin(true); player.onerror = () => fin(started);
+  player.volume = vol; player.src = ttsUrl(text, voice);
+  player.play().catch(() => fin(false));
+  const t = setTimeout(() => fin(started), maxWait); }); }
+// What gets spoken: no emoji, and math signs said as words. Used for both speaking and warming up, so they match.
+export const speakable = (t) => String(t || '').replace(/[\p{Extended_Pictographic}\u200d\ufe0f]/gu, '').replace(/×/g, ' times ').replace(/÷/g, ' divided by ').replace(/−/g, ' minus ').replace(/\s+/g, ' ').trim();
+const ttsUrl = (text, voice) => `/api/tts?v=${encodeURIComponent(voice || cfgRef.cloudVoice || 'thalia')}&t=${encodeURIComponent(text)}`;
+// Asks for lines ahead of time (one by one, in the background), so they play right away when needed.
+let warmQ = Promise.resolve(); export function prewarm(texts) { if (cfgRef.cloud === false) return; for (const t of texts.map(speakable)) if (t) warmQ = warmQ.then(() => fetch(ttsUrl(t)).then((r) => r.arrayBuffer()).catch(() => {})); }
 // direct: an answer to something someone just asked, so it always speaks (softer during quiet hours).
-export function speak(text, { direct = false } = {}) { if (!text || !cfgRef.speak) return; const hush = quiet(); if (hush && !direct) return; const vol = hush ? 0.5 : (cfgRef.volume ?? 1); window.dispatchEvent(new Event('fb-speaking')); if (cfgRef.cloud !== false && player) { cloudSpeak(text, cfgRef.cloudVoice, vol).then((ok) => { if (!ok) deviceSpeak(text, vol); }); } else deviceSpeak(text, vol); }
+export function speak(text, { direct = false } = {}) { text = speakable(text); if (!text || !cfgRef.speak) return; const quietNow = quiet(); if (quietNow && !direct) return; const vol = quietNow ? 0.5 : (cfgRef.volume ?? 1); window.dispatchEvent(new Event('fb-speaking'));
+  const mine = ++turn; hush();
+  if (cfgRef.cloud !== false && player) { cloudSpeak(text, cfgRef.cloudVoice, vol).then((ok) => { if (!ok && mine === turn) deviceSpeak(text, vol); }); } else deviceSpeak(text, vol); }
+// iPad and iPhone only let a page play sound after a tap. Unlock on the first tap anywhere, not just the mic.
+if (typeof window !== 'undefined') { const unlock = () => { primed = false; primeSpeech(); }; window.addEventListener('pointerdown', unlock, { once: true, capture: true }); window.addEventListener('keydown', unlock, { once: true, capture: true }); }
 let ac; const ding = (up = true) => { if (!cfgRef.chime) return; try { ac = ac || new (window.AudioContext || window.webkitAudioContext)(); const o = ac.createOscillator(), g = ac.createGain(); o.connect(g); g.connect(ac.destination); const t = ac.currentTime; o.frequency.setValueAtTime(up ? 523 : 659, t); o.frequency.setValueAtTime(up ? 784 : 440, t + .1); g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.15, t + .02); g.gain.exponentialRampToValueAtTime(.0001, t + .3); o.start(t); o.stop(t + .32); } catch {} };
 
 // One-shot dictation used by the feedback sheet: resolves with the transcript.

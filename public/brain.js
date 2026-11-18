@@ -1,10 +1,10 @@
 // Brain quests on a kid's page: a card that shows how many are left this week, and the quiz itself.
 import { useState, useMemo, useEffect } from 'https://cdn.jsdelivr.net/npm/preact@11.2.0/hooks/+esm';
 import { html, api, toast, chime, confetti } from './app.js';
-import { speak } from './voice.js';
+import { speak, prewarm } from './voice.js';
 import { SUBJECTS, buildQuiz, quizGrade, subjectLabel } from './quiz.js';
 
-const say = (t) => speak(String(t).replace(/[\p{Extended_Pictographic}‍️]/gu, '').replace(/×/g, ' times ').replace(/÷/g, ' divided by ').replace(/−/g, ' minus '));
+const say = (t) => speak(t); // speak() drops emoji and says math signs as words
 const maxStars = (z) => z.questions * z.starsEach + z.perfectBonus;
 
 export function BrainCard({ b, k, refresh }) {
@@ -22,7 +22,7 @@ function Quiz({ b, k, onClose, refresh }) {
   const z = k.quiz; const [subject, setSubject] = useState(null); const [i, setI] = useState(0); const [picked, setPicked] = useState(null); const [results, setResults] = useState([]); const [done, setDone] = useState(null); const [busy, setBusy] = useState(false);
   const grade = useMemo(() => quizGrade(z.grade, z.recent), [z.grade]);
   const qs = useMemo(() => (subject ? buildQuiz({ subject, grade, region: z.region, asked: z.asked, n: z.questions }) : []), [subject]);
-  const q = qs[i]; useEffect(() => { if (qs[0]) say(qs[0].q); }, [qs]);
+  const q = qs[i]; useEffect(() => { if (!qs[0]) return; say(qs[0].q); prewarm(qs.flatMap((x, j) => [j ? x.q : '', 'Yes! ' + x.why, 'Not quite. ' + x.why])); }, [qs]);
   const choose = (c) => { if (picked != null) return; setPicked(c); const ok = c === q.right; chime(ok ? 'ok' : 'bad'); setResults((r) => [...r, { id: q.id, ok, topic: q.topic }]); say(ok ? 'Yes! ' + q.why : 'Not quite. ' + q.why); };
   const next = async () => {
     if (i + 1 < qs.length) { setI(i + 1); setPicked(null); say(qs[i + 1].q); return; }
