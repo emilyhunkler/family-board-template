@@ -12,7 +12,8 @@ export default {
     dog: '', petKind: '',
     groupWords: ['the kids', 'both kids', 'the girls', 'the boys', 'all kids'],
   },
-  theme: { navy: '#1f3a5f', leaf: '#2f8f5b', sun: '#ffc857', coral: '#ff7a90', sky: '#5aa9ff', lilac: '#c3a6ff', mint: '#7fd6b0' },
+  // mode: 'sun' turns dark at sunset and light at sunrise (from the weather's town), or 'light' / 'dark' always.
+  theme: { mode: 'sun', navy: '#1f3a5f', leaf: '#2f8f5b', sun: '#ffc857', coral: '#ff7a90', sky: '#5aa9ff', lilac: '#c3a6ff', mint: '#7fd6b0' },
   calendars: [
     { id: 'family', name: 'Family', url: '', color: '#1f3a5f', owner: null, enabled: true },
   ],

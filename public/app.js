@@ -58,7 +58,7 @@ export function setMascot(fam) { const k = fam?.petKind || (fam?.dog ? 'dog' : '
 // ---------- small components ----------
 export function Ring({ pct, color, label, size = 74, text }) {
   const r = (size - 10) / 2, c = 2 * Math.PI * r;
-  return html`<div class="rg"><svg width=${size} height=${size} viewBox="0 0 ${size} ${size}"><circle cx=${size / 2} cy=${size / 2} r=${r} fill="none" stroke="#e3f2e7" stroke-width="9"/><circle cx=${size / 2} cy=${size / 2} r=${r} fill="none" stroke=${color} stroke-width="9" stroke-linecap="round" stroke-dasharray=${c} stroke-dashoffset=${c * (1 - Math.max(0, Math.min(1, pct)))} transform="rotate(-90 ${size / 2} ${size / 2})" style="transition:stroke-dashoffset .5s"/><text x="50%" y="54%" text-anchor="middle" font-family="Baloo 2" font-weight="800" font-size=${size * 0.24} fill="#1f2a44">${text}</text></svg>${label ? html`<small>${label}</small>` : ''}</div>`;
+  return html`<div class="rg"><svg width=${size} height=${size} viewBox="0 0 ${size} ${size}"><circle cx=${size / 2} cy=${size / 2} r=${r} fill="none" style="stroke:var(--soft2)" stroke-width="9"/><circle cx=${size / 2} cy=${size / 2} r=${r} fill="none" stroke=${color} stroke-width="9" stroke-linecap="round" stroke-dasharray=${c} stroke-dashoffset=${c * (1 - Math.max(0, Math.min(1, pct)))} transform="rotate(-90 ${size / 2} ${size / 2})" style="transition:stroke-dashoffset .5s"/><text x="50%" y="54%" text-anchor="middle" font-family="Baloo 2" font-weight="800" font-size=${size * 0.24} style="fill:var(--ink)">${text}</text></svg>${label ? html`<small>${label}</small>` : ''}</div>`;
 }
 function PinPad({ onOk, onClose, title = 'Grown-up PIN' }) {
   const [v, setV] = useState('');
@@ -85,10 +85,10 @@ function EventSheet({ ev, b, onClose }) {
   const place = ev.place; const q = encodeURIComponent(ev.location || ev.title); const embed = place?.lat ? `https://www.openstreetmap.org/export/embed.html?bbox=${place.lon - .02},${place.lat - .012},${place.lon + .02},${place.lat + .012}&layer=mapnik&marker=${place.lat},${place.lon}` : null;
   return html`<div class="ov" onClick=${onClose}><div class="sheet" onClick=${(e) => e.stopPropagation()}><button class="close" onClick=${onClose}>×</button><h3>${ev.emoji} ${ev.title}</h3>
     <div class="meta">${ev.date === b.today ? 'Today' : longDate(ev.date)} · ${ev.allDay ? 'all day' : ev.timeLabel + ' to ' + ev.endLabel} · ${ev.who}</div>
-    ${ev.location ? html`<div class="meta" style="color:#6b7280">📍 ${ev.location}</div>` : ''}
+    ${ev.location ? html`<div class="meta" style="color:var(--muted)">📍 ${ev.location}</div>` : ''}
     ${embed ? html`<div class="map"><iframe src=${embed} loading="lazy"></iframe></div>` : ''}
     ${place ? html`<div class="facts"><div class="fact">Drive<b>${place.driveMin} min</b></div><div class="fact leave">Leave by<b>${place.leaveBy}</b></div><div class="fact">Buffer<b>${place.bufferMin} min</b></div></div>` : ''}
-    ${ev.description ? html`<p style="font-weight:700;color:#3b4a66;white-space:pre-wrap">${ev.description.slice(0, 400)}</p>` : ''}
+    ${ev.description ? html`<p style="font-weight:700;color:var(--ink2);white-space:pre-wrap">${ev.description.slice(0, 400)}</p>` : ''}
     <div class="btns">${ev.location ? html`<a class="pill" target="_blank" href=${'https://www.google.com/maps/dir/?api=1&destination=' + q}>📍 Directions</a>` : ''}<button class="pill lite" onClick=${() => { primeSpeech(); speak(`${ev.title}, ${ev.date === b.today ? 'today' : longDate(ev.date)} at ${ev.timeLabel}${place ? ', leave by ' + place.leaveBy : ''}`, { direct: true }); }}>🔈 Say it</button></div></div></div>`;
 }
 
@@ -156,7 +156,7 @@ function KidPage({ b, k, refresh, setPage, startTimer, withPin }) {
       ${!k.today.length ? html`<div class="card group"><div class="hd"><b>Nothing scheduled today</b><span>free day 🎈</span></div></div>` : ''}
       <div class="card group"><div class="hd"><b>Bonus quests</b><span>tap to claim · ${grownups(b)} approves</span></div><div class="quests">${(b.config.quests || []).filter((q) => q.who === 'both' || q.who === k.id).map((q) => { const c = claimed(q); return html`<button class=${'quest' + (c ? ' ' + c.status : '')} disabled=${!!c} onClick=${() => claim(q)}>${q.emoji} ${q.title}<span>${c ? (c.status === 'pending' ? 'waiting' : c.status === 'approved' ? `★ ${q.stars} ✓` : 'not today') : '★ ' + q.stars}</span></button>`; })}</div></div>
       <div class="card group"><div class="hd"><b>Spend my stars</b><span>★ ${k.wardrobe.balance - pendingStars} to spend · ${grownups(b)} says yes</span></div><div class="quests">${(b.config.rewards || []).filter((r) => r.who === 'both' || r.who === k.id).map((r) => { const p = k.rewardRequests.find((x) => x.reward === r.id && x.status === 'pending'); const can = k.wardrobe.balance - pendingStars >= r.cost; return html`<button class=${'quest' + (p ? ' pending' : '') + (!p && !can ? ' locked' : '')} disabled=${!!p} onClick=${() => askReward(r, can)}>${r.emoji} ${r.title}<span>${p ? 'asked!' : '★ ' + r.cost}</span></button>`; })}</div>
-        ${k.rewardRequests.filter((x) => x.status !== 'pending').slice(0, 3).map((x) => html`<div style="font-size:12px;font-weight:800;color:#6b7280;margin-top:6px">${x.status === 'approved' ? '✅' : '🙅'} ${x.title} · ${x.status === 'approved' ? 'yes!' : 'not this time'}</div>`)}</div>
+        ${k.rewardRequests.filter((x) => x.status !== 'pending').slice(0, 3).map((x) => html`<div style="font-size:12px;font-weight:800;color:var(--muted);margin-top:6px">${x.status === 'approved' ? '✅' : '🙅'} ${x.title} · ${x.status === 'approved' ? 'yes!' : 'not this time'}</div>`)}</div>
     </div></div></div>`;
 }
 
@@ -209,8 +209,8 @@ function Groceries({ b, refresh }) {
   const [txt, setTxt] = useState(''); const [sharing, setSharing] = useState(false); const list = b.groceries; const open = list.filter((g) => !g.done).sort((a, c) => AISLES.indexOf(a.aisle) - AISLES.indexOf(c.aisle)); const done = list.filter((g) => g.done);
   const add = async () => { if (!txt.trim()) return; await api('/api/grocery', { text: txt, by: 'board' }); setTxt(''); chime('ok'); refresh(); };
   const often = ['Milk', 'Bread', 'Bananas', 'Eggs', 'Yogurt tubes', 'Apples', 'Cheese sticks', ...(b.config.family.dog ? [`${b.config.family.dog}'s food`] : ['Cereal'])];
-  return html`<div class="page"><div class="wkhead"><h2>Groceries</h2><span style="color:#6b7280;font-weight:800">${open.length} things</span>${open.length ? html`<button class="pill sm wa" style="margin-left:auto" onClick=${() => setSharing(true)}>📤 Send list</button>` : ''}${done.length ? html`<button class="pill lite sm" style=${open.length ? '' : 'margin-left:auto'} onClick=${async () => { await api('/api/grocery/clear', {}); refresh(); }}>🧹 Clear ${done.length} checked</button>` : ''}</div>
-    <div class="groc"><div class="card glist">${[...open, ...done].map((g) => html`<button class=${'gi' + (g.done ? ' done' : '')} onClick=${async () => { await api(`/api/grocery/${g.id}/toggle`, {}); refresh(); }}><span class="bx">${g.done ? '✓' : ''}</span>${g.text}<em>${g.aisle}</em>${g.done ? html`<span class="x" onClick=${async (e) => { e.stopPropagation(); await del(`/api/grocery/${g.id}`); refresh(); }}>×</span>` : ''}</button>`)}${!list.length ? html`<div style="padding:20px;color:#6b7280;font-weight:800">The list is empty. Add something →</div>` : ''}</div>
+  return html`<div class="page"><div class="wkhead"><h2>Groceries</h2><span style="color:var(--muted);font-weight:800">${open.length} things</span>${open.length ? html`<button class="pill sm wa" style="margin-left:auto" onClick=${() => setSharing(true)}>📤 Send list</button>` : ''}${done.length ? html`<button class="pill lite sm" style=${open.length ? '' : 'margin-left:auto'} onClick=${async () => { await api('/api/grocery/clear', {}); refresh(); }}>🧹 Clear ${done.length} checked</button>` : ''}</div>
+    <div class="groc"><div class="card glist">${[...open, ...done].map((g) => html`<button class=${'gi' + (g.done ? ' done' : '')} onClick=${async () => { await api(`/api/grocery/${g.id}/toggle`, {}); refresh(); }}><span class="bx">${g.done ? '✓' : ''}</span>${g.text}<em>${g.aisle}</em>${g.done ? html`<span class="x" onClick=${async (e) => { e.stopPropagation(); await del(`/api/grocery/${g.id}`); refresh(); }}>×</span>` : ''}</button>`)}${!list.length ? html`<div style="padding:20px;color:var(--muted);font-weight:800">The list is empty. Add something →</div>` : ''}</div>
       <div class="card gadd"><div class="lbl">Add something</div><input class="gbox" value=${txt} onInput=${(e) => setTxt(e.target.value)} onKeyDown=${(e) => e.key === 'Enter' && add()} placeholder="Oat milk, bananas, poop bags…" /><div class="hint">A few at once with commas, or hold the mic and say them. The aisle is picked for you.</div><button class="pill" style="margin-top:10px" onClick=${add}>Add</button>
         <div class="lbl" style="margin-top:18px">Often bought</div><div class="chips">${often.map((o) => html`<button onClick=${async () => { await api('/api/grocery', { text: o, by: 'board' }); refresh(); }}>${o}</button>`)}</div></div></div>
     ${sharing ? html`<${ShareSheet} items=${open} onClose=${() => setSharing(false)} />` : ''}</div>`;
@@ -269,7 +269,7 @@ function Week({ b, openEv, refresh, withPin }) {
   const narrow = useNarrow();
   const extras = (d) => html`${b.todos.filter((t) => t.date === d && !t.done_at).map((t) => html`<div class="ch2 todo"><span class="e">📌</span><span class="tt">${t.title}<small>${kids.find((k) => k.id === t.kid)?.name || 'both'}</small></span></div>`)}
         ${d === b.payDay ? html`<div class="ch2 prize"><span class="e">💰</span><span class="tt">Pay day<small>${b.config.prize.emoji} prize if earned</small></span></div>` : ''}`;
-  const dinner = (d) => html`<button class="din" onClick=${() => setMeal(d)}>${meal(d) ? html`${meal(d).emoji || '🍽️'} ${meal(d).text}<small>${meal(d).who || ''}</small>` : html`<span style="color:#9aa0ab">🍽️ dinner?</span>`}</button>`;
+  const dinner = (d) => html`<button class="din" onClick=${() => setMeal(d)}>${meal(d) ? html`${meal(d).emoji || '🍽️'} ${meal(d).text}<small>${meal(d).who || ''}</small>` : html`<span style="color:var(--muted)">🍽️ dinner?</span>`}</button>`;
   return html`<div class="page"><div class="wkhead"><h2>${mode === 'month' ? MONL[fromYmd(wk).getMonth()] + ' ' + fromYmd(wk).getFullYear() : mode === 'day' ? longDate(addDays(b.today, off)) : `${MON[fromYmd(wk).getMonth()]} ${fromYmd(wk).getDate()} to ${MON[fromYmd(days[6]).getMonth()]} ${fromYmd(days[6]).getDate()}`}</h2>
       <div class="seg2"><button class=${mode === 'day' ? 'on' : ''} onClick=${() => { setMode('day'); setOff(0); }}>Day</button><button class=${mode === 'week' ? 'on' : ''} onClick=${() => { setMode('week'); setOff(0); }}>Week</button><button class=${mode === 'month' ? 'on' : ''} onClick=${() => { setMode('month'); setOff(0); }}>Month</button></div>
       <div class="seg2"><button onClick=${() => setOff(off - 1)}>‹</button><button onClick=${() => setOff(0)}>today</button><button onClick=${() => setOff(off + 1)}>›</button></div>
@@ -303,12 +303,12 @@ function FeedbackSheet({ b, page, onClose }) {
   useEffect(() => micOff, []); // closing the sheet always turns the mic off
   const send = async () => { if (!text.trim()) return; micOff(); try { const r = await api('/api/feedback', { text: text.trim(), from: who, page }); localStorage.setItem('fb-who', who); chime('win'); setSent(r.issueUrl || true); } catch (e) { toast(e.message); } };
   return html`<div class="ov" onClick=${onClose}><div class="sheet" style="width:560px" onClick=${(e) => e.stopPropagation()}><button class="close" onClick=${onClose}>×</button>
-    ${sent ? html`<h3>💛 Thanks!</h3><p style="font-weight:800;color:#3b4a66">Your note is saved in Parents → Feedback${sent !== true ? html` and filed as <a target="_blank" href=${sent}>a GitHub issue</a>` : ''}.</p><div class="btns"><button class="pill" onClick=${onClose}>Done</button></div>` : html`
-    <h3>💬 Feedback</h3><p style="font-weight:800;color:#6b7280;margin:4px 0 10px">Something confusing, broken, or an idea? Say it or type it.</p>
+    ${sent ? html`<h3>💛 Thanks!</h3><p style="font-weight:800;color:var(--ink2)">Your note is saved in Parents → Feedback${sent !== true ? html` and filed as <a target="_blank" href=${sent}>a GitHub issue</a>` : ''}.</p><div class="btns"><button class="pill" onClick=${onClose}>Done</button></div>` : html`
+    <h3>💬 Feedback</h3><p style="font-weight:800;color:var(--muted);margin:4px 0 10px">Something confusing, broken, or an idea? Say it or type it.</p>
     <div class="chips" style="margin:0 0 10px">${people.map((n) => html`<button class=${who === n ? 'on' : ''} style=${who === n ? { background: '#1f3a5f', color: '#fff' } : {}} onClick=${() => setWho(n)}>${n}</button>`)}</div>
     <textarea class="gbox" rows="4" style="resize:vertical;min-height:110px" value=${text} onInput=${(e) => setText(e.target.value)} placeholder=${rec ? 'Listening… talk now' : 'The week view should also show…'}></textarea>
     <div class="btns"><button class=${'pill ' + (rec ? 'danger' : 'sun')} onClick=${talk}>${rec ? '⏹ Stop' : '🎙 Talk instead'}</button><button class="pill" disabled=${!text.trim()} onClick=${send}>Send</button></div>
-    <p style="font-size:12px;color:#6b7280;font-weight:700;margin-top:10px">Tip: on the tablet say "Hey calendar, feedback" to open this with the mic already on.</p>`}</div></div>`;
+    <p style="font-size:12px;color:var(--muted);font-weight:700;margin-top:10px">Tip: on the tablet say "Hey calendar, feedback" to open this with the mic already on.</p>`}</div></div>`;
 }
 // ---------- ambient and sleep ----------
 // Seven days from today, compact, for the screensaver.
@@ -529,11 +529,22 @@ function SetupGate({ b, pinApi, refresh }) {
 }
 // ---------- app ----------
 const PAGES = ['week', 'home', 'wardrobe', 'groceries'];
+// Light or dark colors. "Follow the sun" uses today's sunrise and sunset for the family's town (7:00 and 19:00 if no town is set).
+export function isDarkNow(b, now = new Date()) {
+  const mode = b?.config?.theme?.mode || 'sun'; if (mode === 'dark') return true; if (mode !== 'sun') return false;
+  const d0 = b.weather?.days?.find((x) => x.date === b.today); const mins = (s, dflt) => { const m = /^(\d\d):(\d\d)/.exec(s || ''); return m ? +m[1] * 60 + +m[2] : dflt; };
+  const n = now.getHours() * 60 + now.getMinutes(); return n < mins(d0?.sunrise, 420) || n >= mins(d0?.sunset, 1140) + 15; // a little after sunset, while there's still some light
+}
+function useTheme(b, clock) {
+  const dark = !!b && isDarkNow(b, clock);
+  useEffect(() => { try { localStorage.setItem('fb-dark', dark ? '1' : ''); } catch {} document.documentElement.classList.toggle('dark', dark); document.querySelector('meta[name=theme-color]')?.setAttribute('content', dark ? '#121a24' : '#1f3a5f'); }, [dark]);
+}
 function App() {
   const [b, setB] = useState(null); const [err, setErr] = useState(''); const [page, setPageState] = useState('home'); const [wardKid, setWardKid] = useState(null);
   const [ev, setEv] = useState(null); const [wx, setWx] = useState(false); const [fb, setFb] = useState(false); const [parents, setParents] = useState(false); const [ambient, setAmbient] = useState(false); const [timer, setTimer] = useState(null); const [clock, setClock] = useState(new Date()); const [gmClosed, setGmClosed] = useState(false); const [preview, setPreview] = useState(null);
   useEffect(() => { const m = () => { setParents(false); setPreview('morning'); }; const n = () => { setParents(false); setPreview('night'); }; addEventListener('fb-preview-morning', m); addEventListener('fb-preview-night', n); return () => { removeEventListener('fb-preview-morning', m); removeEventListener('fb-preview-night', n); }; }, []);
   const pagesRef = useRef(); const idleRef = useRef(Date.now()); const timerCb = useRef(null); const pinApi = usePin();
+  useTheme(b, clock);
   pinApi.setParent(b?.me?.kind === 'parent');
   const bootVersion = useRef(null); const [update, setUpdate] = useState(false);
   const refresh = refreshBoard = useCallback(async () => { try { const j = await api('/api/board'); setMascot(j.config.family); if (!bootVersion.current) bootVersion.current = j.version; else if (j.version && j.version !== bootVersion.current) setUpdate(true); setB(j); setErr(''); } catch (e) { setErr(e.message); } }, []);

@@ -1,4 +1,4 @@
-:root{--navy:#1f3a5f;--leaf:#2f8f5b;--sun:#ffc857;--coral:#ff7a90;--sky:#5aa9ff;--lilac:#c3a6ff;--mint:#7fd6b0;--ink:#1f2a44;--muted:#6b7280;--card:#fff;--soft:#eef7f1;--soft2:#e3f2e7;--line:#cfe5d6;
+:root{--navy:#1f3a5f;--leaf:#2f8f5b;--sun:#ffc857;--coral:#ff7a90;--sky:#5aa9ff;--lilac:#c3a6ff;--mint:#7fd6b0;--ink:#1f2a44;--muted:#6b7280;--card:#fff;--soft:#eef7f1;--soft2:#e3f2e7;--line:#cfe5d6;--ink2:#3b4a66;--note:#fff3c4;--noteText:#3d2c00;
   --head:"Baloo 2",system-ui,sans-serif;--body:"Nunito",system-ui,sans-serif;--r:24px}
 *{box-sizing:border-box}html,body{height:100%;margin:0;-webkit-tap-highlight-color:transparent;overscroll-behavior:none}
 body{font-family:var(--body);color:var(--ink);background:linear-gradient(160deg,#eaf7ee 0%,#d9f0e2 55%,#e6f4ff 100%);font-size:16px;line-height:1.35;-webkit-user-select:none;user-select:none}
