@@ -93,7 +93,7 @@ function decorate(e, cfg) {
 // ---------- board ----------
 async function board(env, cfg, req, url) {
   const zone = cfg.zone; const now = new Date(); const today = url.searchParams.get('date') || ymd(now, zone);
-  const wk = P.weekStart(today, cfg.week.startsOn); const since = addDaysYmd(today, -100);
+  const wk = P.payWeekStart(today, cfg); const calWeekStart = P.weekStart(today, cfg.week.startsOn); const since = addDaysYmd(today, -100);
   const [evs, weather, checks, todos, claims, ledger, groceries, meals, notes, logs] = await Promise.all([
     getEvents(env, cfg, req).catch((e) => ({ events: [], status: { all: e.message }, sample: false })),
     cached(env, wxKey(cfg), 30 * 60 * 1000, () => H.fetchWeather(cfg)).catch(() => null),
@@ -124,7 +124,7 @@ async function board(env, cfg, req, url) {
       rewardRequests: rewardReqs.filter((r) => r.kid === k.id), pendingClaims: claims.filter((c) => c.kid === k.id && c.status === 'pending'), weekClaims: claims.filter((c) => c.kid === k.id && c.date >= wk) });
   }
   const turnText = instToday.filter((i) => i.turn).map((i) => `${cfg.kids.find((k) => k.id === i.kids[0])?.name} has ${i.title.toLowerCase()} today`).join('. ');
-  return { version: env.CF_VERSION_METADATA?.id || 'dev', now: now.toISOString(), today, zone, weekStart: wk, isSchoolDay: P.isSchoolDay(today, cfg), tomorrowSchool: P.isSchoolDay(addDaysYmd(today, 1), cfg),
+  return { version: env.CF_VERSION_METADATA?.id || 'dev', now: now.toISOString(), today, zone, weekStart: wk, calWeekStart, payDay: addDaysYmd(wk, 6), isSchoolDay: P.isSchoolDay(today, cfg), tomorrowSchool: P.isSchoolDay(addDaysYmd(today, 1), cfg),
     config: publicConfig(cfg), weather, tip, events: evs.events, rewardRequests: rewardReqs, photoIds, calendarStatus: evs.status, sampleData: evs.sample, kids, todos, claims, groceries, meals, notes, turnText, recent: logs, instancesToday: instToday };
 }
 
@@ -267,15 +267,24 @@ async function authRoute(env, req, path, cfg, userCount) {
 async function newInvite(env, userId) { const token = A.randomHex(32); await env.DB.prepare('INSERT INTO invites(id,user_id,created_at,expires_at) VALUES(?,?,?,?)').bind(await A.sha256hex(token), userId, nowIso(), new Date(Date.now() + 7 * 86400000).toISOString()).run(); return token; }
 
 // ---------- push notifications ----------
-const KINDS = ['quest', 'reward', 'done', 'feedback', 'morning'];
+const KINDS = ['quest', 'reward', 'done', 'feedback', 'morning', 'payday'];
 async function vapidKeys(env) { let v = await getSetting(env, 'vapid', null); if (!v) { v = await makeVapid(); await setSetting(env, 'vapid', v); } return v; }
-async function notify(env, kind, title, body, url = '/') {
+async function notify(env, kind, title, body, url = '/', onlyWho = null) {
   try {
-    const subs = (await env.DB.prepare('SELECT * FROM push_subs').all()).results.filter((x) => { try { return JSON.parse(x.prefs || '[]').includes(kind); } catch { return false; } });
+    // Direct sends from the kitchen go to every phone that turned notifications on (or just the chosen person's); other kinds follow each phone's choices.
+    const subs = (await env.DB.prepare('SELECT * FROM push_subs').all()).results.filter((x) => { if (onlyWho) return (x.who || '').toLowerCase() === onlyWho.toLowerCase(); if (kind === 'send') return true; try { return JSON.parse(x.prefs || '[]').includes(kind); } catch { return false; } });
     if (!subs.length) return 0; const v = await vapidKeys(env); const subject = (await getSetting(env, 'origin', null)) || 'https://example.invalid';
     const work = Promise.all(subs.map(async (x) => { try { const r = await sendPush({ endpoint: x.endpoint, keys: { p256dh: x.p256dh, auth: x.auth } }, { title, body, url, tag: kind }, v, subject); if (r.gone) await env.DB.prepare('DELETE FROM push_subs WHERE id=?').bind(x.id).run(); else if (r.ok) await env.DB.prepare('UPDATE push_subs SET last_ok=? WHERE id=?').bind(nowIso(), x.id).run(); return r.ok; } catch { return false; } }));
     const res = await Promise.race([work, new Promise((r) => setTimeout(() => r([]), 4000))]); return res.filter(Boolean).length;
   } catch { return 0; }
+}
+// Pay day evening: tell the grown-ups what each kid earned this week.
+async function payDayNotice(env, cfg, req) {
+  const now = new Date(); const p = parts(now, cfg.zone); const today = ymd(now, cfg.zone); if (p.wd !== P.payDayOf(cfg)) return;
+  const [h, m] = (cfg.week?.closesAt || '18:00').split(':').map(Number); const mins = p.h * 60 + p.mi - (h * 60 + m); if (mins < 0 || mins > 45) return;
+  if ((await getSetting(env, 'payday', '')) === today) return; await setSetting(env, 'payday', today);
+  const snap = await board(env, cfg, req, new URL('https://board.local/'));
+  await notify(env, 'payday', '💰 Pay day!', snap.kids.map((k) => `${k.name} earned ${'$' + k.week.total.toFixed(2)}${k.week.prize?.earned ? ' and the weekly prize ' + (cfg.prize?.emoji || '') : ''}`).join(' · '), '/#today');
 }
 async function morningBriefing(env, cfg, req) {
   const zone = cfg.zone; const now = new Date(); const p = parts(now, zone); const today = ymd(now, zone); const [h, m] = (cfg.notify?.morningAt || '06:45').split(':').map(Number);
@@ -293,7 +302,7 @@ async function morningBriefing(env, cfg, req) {
 
 // ---------- router ----------
 export default {
-  async scheduled(ev, env, ctx) { const cfg = await getConfig(env); const req = new Request('https://family-board.local/'); ctx.waitUntil(Promise.all([getEvents(env, cfg, req, true), cached(env, wxKey(cfg), 0, () => H.fetchWeather(cfg), true), morningBriefing(env, cfg, req)]).catch(() => {})); },
+  async scheduled(ev, env, ctx) { const cfg = await getConfig(env); const req = new Request('https://family-board.local/'); ctx.waitUntil(Promise.all([getEvents(env, cfg, req, true), cached(env, wxKey(cfg), 0, () => H.fetchWeather(cfg), true), morningBriefing(env, cfg, req), payDayNotice(env, cfg, req).catch(() => {})]).catch(() => {})); },
   async fetch(req, env, ctx) {
     const url = new URL(req.url); const path = url.pathname;
     const userCount = (await env.DB.prepare('SELECT COUNT(*) AS n FROM users WHERE pw_hash IS NOT NULL').first().catch(() => ({ n: 0 })))?.n || 0;
@@ -344,6 +353,19 @@ export default {
       }
       if (path.startsWith('/api/photo/') && method === 'DELETE') { if (!admin()) return denyAdmin(req); await env.DB.prepare('DELETE FROM photos WHERE id=?').bind(+path.split('/')[3]).run(); return json({ ok: true }); }
       if (path === '/api/push/key') return json({ publicKey: (await vapidKeys(env)).publicKey });
+      // The kitchen screen sends the grocery list, today's plan or a note to the grown-ups' phones.
+      if (path === '/api/push/send' && method === 'POST') {
+        const wait = await A.check(env, 'send:all', 20); if (wait) return err(`That's a lot of sending. Try again in ${wait} minutes.`, 429); await A.fail(env, 'send:all', 10 * 60);
+        const what = body.what; let title = '', text = '', link = '/#today';
+        if (what === 'groceries') { const g = (await env.DB.prepare('SELECT text FROM groceries WHERE done = 0 ORDER BY id').all()).results; if (!g.length) return err('The grocery list is empty'); title = `🛒 Grocery list (${g.length})`; text = g.map((x) => x.text).join(', '); link = '/#groceries'; }
+        else if (what === 'today') { const snap = await board(env, cfg, req, url); const evs = snap.events.filter((e) => e.date <= today && e.endDate >= today); const meal = snap.meals.find((m) => m.date === today);
+          title = `📅 Today, ${evs.length} event${evs.length === 1 ? '' : 's'}`; text = [evs.slice(0, 6).map((e) => `${e.allDay ? '' : e.timeLabel + ' '}${e.title}${e.place ? ' (leave ' + e.place.leaveBy + ')' : ''}`).join(' · ') || 'Nothing on the calendar', meal ? `Dinner: ${meal.text}` : '', snap.kids.map((k) => `${k.name} ${k.today.filter((t) => t.done && !t.doneByOther).length}/${k.today.filter((t) => !t.doneByOther).length}`).join(', ')].filter(Boolean).join('\n'); }
+        else if (what === 'note') { text = String(body.text || '').trim().slice(0, 300); if (!text) return err('Write a note first'); title = `💬 From the kitchen${body.from ? ', ' + String(body.from).slice(0, 30) : ''}`; }
+        else return err('Nothing to send');
+        const n = await notify(env, 'send', title, text, link, body.to && body.to !== 'all' ? String(body.to) : null);
+        if (!n) return err("No phones are set up yet. On each phone, open the board and tap Turn on notifications.", 404);
+        return json({ ok: true, sent: n });
+      }
       if (path === '/api/push/subscribe' && method === 'POST') {
         if (!admin()) return denyAdmin(req); const sub = body.sub; if (!sub?.endpoint || !sub?.keys?.p256dh || !sub?.keys?.auth) return err('bad subscription');
         const prefs = JSON.stringify((body.prefs || KINDS).filter((k) => KINDS.includes(k))); await setSetting(env, 'origin', url.origin);

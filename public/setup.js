@@ -118,6 +118,7 @@ function Chores({ c, edit }) {
   return html`<h2>Routines and chores</h2><p class="wizp">Tick a starter set. Each one earns stars toward the weekly allowance. "Take turns" chores rotate between the kids. You can fine-tune days, stars and who in Parents later.</p>
     <div class="wizgrp"><h4>☀️ Before school</h4>${list('morning')}</div><div class="wizgrp"><h4>🏡 After school</h4>${list('after')}</div>
     ${custom.length ? html`<div class="wizgrp"><h4>Already on your board</h4>${custom.map((t) => html`<button class="wizchk on" onClick=${() => edit((n) => { n.tasks = n.tasks.filter((x) => x.id !== t.id); })}><span>✅</span>${t.emoji} ${t.title}</button>`)}</div>` : ''}
+    <div class="wizf"><label>Pay day, when the allowance week ends</label><div class="chips big">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d, i) => html`<button class=${(Number.isInteger(c.week.payDay) ? c.week.payDay : 0) === i ? 'on' : ''} onClick=${() => edit((n) => { n.week.payDay = i; })}>${d}</button>`)}</div></div>
     <div class="wizf"><label>Weekly prize for a great week</label><div class="wizinline"><input class="gbox sm" style="flex:0 0 64px;text-align:center" value=${c.prize.emoji} onInput=${(e) => edit((n) => { n.prize.emoji = e.target.value; })} /><input class="gbox sm" style="flex:1" value=${c.prize.title} onInput=${(e) => edit((n) => { n.prize.title = e.target.value; })} /></div></div>`;
 }
 
@@ -141,7 +142,7 @@ function Finish({ c, edit, b, pin, rerun, save, onDone, setBusy }) {
   const finish = async () => {
     if (!pinOk) { toast('Choose a PIN of 4 to 8 digits'); return; }
     setWorking(true); setBusy(true);
-    const n = structuredClone(c); if (newPin) n.pin = newPin; n.setup = { done: true }; const usePin = newPin || pin;
+    const n = structuredClone(c); if (newPin) n.pin = newPin; n.setup = { done: true }; if (!n.week.startedOn) n.week.startedOn = b.today; const usePin = newPin || pin;
     try {
       await put('/api/admin/config', { config: n }, pin || usePin);
       await api('/api/admin/refresh', {}, usePin).catch(() => {});

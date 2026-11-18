@@ -3,6 +3,9 @@ import { addDaysYmd, weekdayOfYmd } from './ical.js';
 
 export const num = (v, d) => { const n = Number(v); return Number.isFinite(n) ? n : d; };
 export function dayNumber(ymd) { const [y, m, d] = ymd.split('-').map(Number); return Math.floor(Date.UTC(y, m - 1, d) / 86400000); }
+// The allowance week ends on pay day (default Sunday, so it starts Monday as before).
+export const payDayOf = (cfg) => (Number.isInteger(cfg.week?.payDay) ? cfg.week.payDay : ((cfg.week?.startsOn ?? 1) + 6) % 7);
+export const payWeekStart = (ymd, cfg) => weekStart(ymd, (payDayOf(cfg) + 1) % 7);
 export function weekStart(ymd, startsOn = 1) { const back = (weekdayOfYmd(ymd) - startsOn + 7) % 7; return addDaysYmd(ymd, -back); }
 export function isSchoolDay(ymd, cfg) {
   const s = cfg.school || {}; if ((s.daysOff || []).includes(ymd)) return false; if ((s.extraDays || []).includes(ymd)) return true;
@@ -58,7 +61,10 @@ export function roundDown(a, step = 0.25) { return Math.floor((a + 1e-9) / step)
 export function weekSummary(kid, wkStart, cfg, checks, todos, claims, today) {
   const days = []; let possible = 0, earned = 0, misses = 0;
   for (let i = 0; i < 7; i++) {
-    const d = addDaysYmd(wkStart, i); const inst = instancesForDay(d, cfg, todos); const dc = checks.filter((c) => c.date === d);
+    const d = addDaysYmd(wkStart, i);
+    // Days before the family started using the board don't count, so a first partial week isn't full of misses.
+    if (cfg.week?.startedOn && d < cfg.week.startedOn) { days.push({ date: d, status: 'free', possible: 0, earned: 0, scheduled: 0, done: 0 }); continue; }
+    const inst = instancesForDay(d, cfg, todos); const dc = checks.filter((c) => c.date === d);
     const p = dayPoints(kid.id, inst, dc, cfg); possible += p.possible; earned += p.earned;
     let status; if (d > today) status = 'upcoming'; else if (p.scheduled === 0) status = 'free'; else if (p.done >= p.scheduled) status = 'full'; else if (d === today) status = p.done ? 'part' : 'open'; else status = p.done ? 'part' : 'miss';
     if (d < today) misses += Math.max(0, p.scheduled - p.done);
