@@ -416,3 +416,14 @@ table.t{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}table.
 .gm .notewall{margin:0}.gm .stick{flex:1 1 360px}
 @keyframes stickin{from{transform:scale(.96);opacity:0}to{transform:none;opacity:1}}
 @media (max-width:600px){.stick{flex-basis:100%;padding:12px}.stick .nt{font-size:18px}.stick .pinx{font-size:24px}.gotit{padding:10px 14px;font-size:15px}}
+/* Idle screen: today at a glance */
+.glance{padding:16px 20px;display:flex;flex-direction:column;gap:10px;min-height:0;overflow:hidden}
+.gl-all{display:flex;flex-wrap:wrap;gap:6px}.gl-all span{border-left:4px solid;background:#f4f7fb;border-radius:8px;padding:4px 10px;font-weight:800;font-size:13px}
+.gl-g{display:flex;flex-direction:column;gap:6px}
+.gl-h{display:flex;justify-content:space-between;align-items:baseline;font-family:var(--head);font-weight:800;font-size:17px;color:var(--navy);border-bottom:2px solid #eef2f6;padding-bottom:3px}.gl-h span{font-family:var(--body);font-size:12px;color:var(--muted)}
+.gl-e{display:grid;grid-template-columns:6px 58px 1fr;gap:10px;align-items:center;font-weight:800;font-size:16px;line-height:1.2}
+.gl-e i{align-self:stretch;border-radius:4px;background:#cbd5e1}.gl-e b{font-size:14px;color:var(--navy);font-variant-numeric:tabular-nums}
+.gl-e small{display:block;font-size:12px;color:var(--muted);margin-top:2px}.gl-e em{font-style:normal;color:#b45309}
+.gl-e.soon{background:#fff7e0;border-radius:10px;padding:4px 6px 4px 0;margin:0 -6px 0 0}
+.gl-e.live b{color:#2f8f5b}.gl-e.live{background:#e7f6ec;border-radius:10px;padding:4px 6px 4px 0}
+.gl-e.din i{background:#ffc857}.gl-more,.gl-free{font-size:13px;font-weight:800;color:var(--muted)}

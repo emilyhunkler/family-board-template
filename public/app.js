@@ -321,14 +321,38 @@ function WeekStrip({ b, overlay }) {
     ${ev.length > 3 ? html`<div class="wsm">+${ev.length - 3} more</div>` : ''}${!ev.length ? html`<div class="wsm">Free day 🎈</div>` : ''}
     ${m ? html`<div class="wsd">${m.emoji || '🍽️'} ${m.text}</div>` : ''}</div>`; })}</div>`;
 }
+// The idle screen's "at a glance" card: what's left of today grouped by morning, afternoon and evening,
+// with anything in the next 90 minutes marked "soon". Late in the day it adds tomorrow.
+const PARTS = [['morning', 'This morning', 0, 12], ['afternoon', 'This afternoon', 12, 17], ['evening', 'This evening', 17, 24]];
+function Glance({ b, now }) {
+  const hr = (d) => d.getHours() + d.getMinutes() / 60; const nowH = hr(now);
+  const onDay = (d) => b.events.filter((e) => e.date <= d && e.endDate >= d);
+  const today = onDay(b.today); const allDay = today.filter((e) => e.allDay);
+  const timed = today.filter((e) => !e.allDay && e.date === b.today && new Date(e.end) > now).sort((a, c) => a.start.localeCompare(c.start));
+  const meal = b.meals.find((m) => m.date === b.today);
+  const groups = PARTS.filter(([, , , to]) => to > nowH).map(([k, label, from, to]) => {
+    const evs = timed.filter((e) => { const h = Math.max(hr(new Date(e.start)), nowH); return h >= from && h < to; }); // a thing already going counts in the part of the day we're in now
+    return { k, label: nowH >= from ? label.replace('This ', 'Rest of this ') : label, evs, dinner: k === 'evening' && meal };
+  });
+  const late = nowH >= 18; const tm = addDays(b.today, 1);
+  const tmr = late ? onDay(tm).sort((a, c) => (a.allDay === c.allDay ? a.start.localeCompare(c.start) : a.allDay ? -1 : 1)) : [];
+  const row = (e) => { const s = new Date(e.start), en = new Date(e.end); const live = s <= now && now < en; const mins = (s - now) / 60000; const soon = !live && mins > 0 && mins <= 90;
+    return html`<div class=${'gl-e' + (live ? ' live' : soon ? ' soon' : '')}><i style=${{ background: e.color }}></i><b>${live ? 'Now' : e.timeLabel}</b><span>${e.emoji} ${e.title}<small>${e.who}${e.place && !live ? ' · leave by ' + e.place.leaveBy : ''}${soon ? html` · <em>in ${Math.max(1, Math.round(mins))} min</em>` : ''}</small></span></div>`; };
+  const shown = groups.filter((g) => g.evs.length || g.dinner);
+  return html`<div class="card next glance"><div class="lbl">Today at a glance</div>
+    ${allDay.length ? html`<div class="gl-all">${allDay.map((e) => html`<span style=${{ borderColor: e.color }}>${e.emoji} ${e.title}</span>`)}</div>` : ''}
+    ${shown.map((g) => html`<div class="gl-g"><div class="gl-h">${g.label}<span>${g.evs.length ? `${g.evs.length} thing${g.evs.length === 1 ? '' : 's'}` : ''}</span></div>${g.evs.slice(0, 4).map(row)}${g.evs.length > 4 ? html`<div class="gl-more">+${g.evs.length - 4} more</div>` : ''}${g.dinner ? html`<div class="gl-e din"><i></i><b>🍽️</b><span>Dinner: ${meal.emoji || ''} ${meal.text}</span></div>` : ''}</div>`)}
+    ${!shown.length ? html`<div class="gl-free">${late ? 'Nothing else tonight 🌙' : 'Nothing else on the calendar today 🎈'}</div>` : ''}
+    ${late ? html`<div class="gl-g"><div class="gl-h">Tomorrow, ${DAYN[fromYmd(tm).getDay()]}<span>${tmr.length ? `${tmr.length} thing${tmr.length === 1 ? '' : 's'}` : 'nothing yet'}</span></div>${tmr.slice(0, 4).map((e) => html`<div class="gl-e"><i style=${{ background: e.color }}></i><b>${e.allDay ? 'all day' : e.timeLabel}</b><span>${e.emoji} ${e.title}<small>${e.who}${e.place ? ' · leave by ' + e.place.leaveBy : ''}</small></span></div>`)}${tmr.length > 4 ? html`<div class="gl-more">+${tmr.length - 4} more</div>` : ''}</div>` : ''}
+  </div>`;
+}
 function Ambient({ b, onWake }) {
   const [t, setT] = useState(new Date()); useEffect(() => { const i = setInterval(() => setT(new Date()), 1000); return () => clearInterval(i); }, []);
   const photos = b.photoIds || []; const secs = Math.max(5, b.config.photos?.seconds || 20); const [pi, setPi] = useState(() => Math.floor(Math.random() * Math.max(1, photos.length)));
   useEffect(() => { if (photos.length < 2) return; const i = setInterval(() => setPi((x) => (x + 1) % photos.length), secs * 1000); return () => clearInterval(i); }, [photos.length, secs]);
   useEffect(() => { if (photos.length > 1) { const img = new Image(); img.src = `/api/photo/${photos[(pi + 1) % photos.length]}`; } }, [pi, photos.length]);
   const w = b.weather; const d0 = w?.days.find((x) => x.date === b.today); const hrs = w ? w.hourly.filter((x) => x.date === b.today && +x.hour.slice(0, 2) >= t.getHours()).slice(0, 7) : [];
-  const next = b.events.find((e) => e.date === b.today && new Date(e.start) > t && !e.allDay) || b.events.find((e) => e.date > b.today);
-  const nextCard = html`<div class="card next"><div class="lbl">Next up</div><div class="t">${next ? `${next.emoji} ${next.title}, ${next.date === b.today ? next.timeLabel : DAYN[fromYmd(next.date).getDay()] + ' ' + next.timeLabel}` : 'Nothing coming up'}<small>${next ? `${next.who}${next.place ? ' · leave by ' + next.place.leaveBy : ''}${next.location ? ' · ' + next.location.split(',')[0] : ''}` : ''}</small></div></div>`;
+  const nextCard = html`<${Glance} b=${b} now=${t} />`;
   const showWeek = b.config.ambient?.showWeek !== false;
   const stands = b.kids.map((k) => html`<div class="card stand"><${Avatar} kid=${k} size="64px" /><div class="nm">${k.name}<small>Level ${k.level.level} · 🔥 ${k.streak} days · ${money(k.week.total)} so far</small></div><${Ring} size=${56} pct=${k.today.length ? k.today.filter((x) => x.done).length / k.today.length : 0} color=${k.color} text=${`${k.today.filter((x) => x.done).length}/${k.today.length}`} /></div>`);
   if (photos.length) return html`<div class=${'ambient photos' + (showWeek ? ' withweek' : '')} onClick=${onWake}>
