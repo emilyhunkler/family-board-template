@@ -93,10 +93,20 @@ function EventSheet({ ev, b, onClose }) {
 }
 
 // ---------- pages ----------
+// Notes a grown-up posted: a big sticky card on the kitchen screens, with a Got it button that clears it for everyone.
+let refreshBoard = () => {};
+const ago = (iso) => { const m = Math.round((Date.now() - new Date(iso)) / 60000); return m < 2 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
+function NoteCards({ b, max = 3 }) {
+  const [gone, setGone] = useState([]); const list = b.notes.filter((n) => !gone.includes(n.id)).slice(0, max);
+  if (!list.length) return '';
+  const ok = async (e, n) => { e.stopPropagation(); setGone((g) => [...g, n.id]); chime('ok'); try { await del('/api/note/' + n.id); } catch {} refreshBoard(); };
+  return html`<div class="notewall">${list.map((n) => html`<div class="stick" key=${n.id} onClick=${(e) => e.stopPropagation()}><span class="pinx">📌</span><div class="nt">${n.text}<small>${n.from_who ? 'from ' + n.from_who + ' · ' : ''}${ago(n.created_at)}</small></div><button class="gotit" onClick=${(e) => ok(e, n)}>✓ Got it</button></div>`)}</div>`;
+}
 function Home({ b, go, openEv, setPage }) {
   const now = new Date(); const todays = b.events.filter((e) => e.date === b.today); const prize = b.config.prize;
   return html`<div class="page home-page">
     ${b.sampleData ? html`<div class="banner" style="margin:0 0 10px">Showing sample events. Add your Google calendar links in Parents → Calendar and weather.</div>` : ''}
+    <${NoteCards} b=${b} />
     <div class="home">${b.kids.map((k) => html`<div class="card kc" onClick=${() => setPage(k.id)}>
       <${Avatar} kid=${k} size="150px" />
       <div><div class="name">${k.name}<small>Level ${k.level.level} ${k.level.name} ${k.streak ? ` · 🔥 ${k.streak} day streak` : ''}${b.isSchoolDay ? leaveText(k, now) : ''}</small></div>
@@ -107,8 +117,7 @@ function Home({ b, go, openEv, setPage }) {
     <div class="card prize"><div class="ic">${prize.emoji}</div><div class="t">This week's prize: ${prize.title}<small>Every task all week (${prize.missesAllowed} miss${prize.missesAllowed === 1 ? '' : 'es'} allowed) and ${prize.bonusStars} bonus stars.</small></div>
       <div class="pb">${b.kids.map((k) => html`<div>${k.name} · ${k.week.prize.onTrack ? `${k.week.misses} miss${k.week.misses === 1 ? '' : 'es'}` : 'missed too many'} · ★ ${k.week.bonusStars}/${prize.bonusStars}<div class="bar"><i style=${{ width: Math.round(100 * k.week.prize.progress) + '%', background: k.color }}></i></div></div>`)}</div></div>
     <div class="now">${todays.length ? todays.map((e) => { const s = new Date(e.start), en = new Date(e.end); const live = !e.allDay && s <= now && now < en; const past = en < now; return html`<div class=${'card ev' + (live ? ' live' : past ? ' past' : '')} onClick=${() => openEv(e)}><span class="tm">${live ? 'Now' : e.timeLabel}</span><span class="pip" style=${{ background: e.color }}></span><span class="tt">${e.emoji} ${e.title}<small>${e.who}${e.place ? ' · leave ' + e.place.leaveBy : ''}${e.location ? ' · ' + e.location.split(',')[0] : ''}</small></span></div>`; }) : html`<div class="card ev"><span class="tt">Nothing on the calendar today 🎈</span></div>`}</div>
-    <div class="mascot-row"><div class="mascot" dangerouslySetInnerHTML=${{ __html: MASCOT }}></div><div class="bubble">${mascotLine(b, now)}</div>
-      <div class="notes">${b.notes.slice(0, 3).map((n) => html`<div class="note">${n.text}<small>${n.from_who || ''}</small></div>`)}</div></div>
+    <div class="mascot-row"><div class="mascot" dangerouslySetInnerHTML=${{ __html: MASCOT }}></div><div class="bubble">${mascotLine(b, now)}</div></div>
   </div>`;
 }
 function leaveText(k, now) { const m = minsUntil(k.leaveTime, now); if (m > 0 && m <= 180) return ` · out the door in ${m} min`; if (m <= 0 && m > -600) return ' · have a great day'; return ''; }
@@ -326,11 +335,11 @@ function Ambient({ b, onWake }) {
     <div class="photo">${photos.map((id, i) => html`<img key=${id} src=${i === pi || i === (pi + 1) % photos.length ? `/api/photo/${id}` : ''} class=${i === pi ? 'on' : ''} alt="" />`)}</div>
     <div class="right"><div><div class="clock" style="font-size:96px">${fmtClock(t)}</div><div class="date" style="font-size:22px">${longDate(b.today)}</div></div>
       ${w ? html`<div class="card next" style="display:flex;align-items:center;gap:14px"><span style="font-size:48px">${w.current.icon}</span><div class="t" style="margin:0">${w.current.temp}° · ${d0?.high}°/${d0?.low}°<small>feels like ${w.current.feels}° · rain ${d0?.rainPct}%${b.tip ? ' · ' + b.tip : ''}</small></div></div>` : ''}
-      ${nextCard}${stands}<div class="mascot-row" style="margin-top:0"><div class="mascot" style="width:64px;height:64px" dangerouslySetInnerHTML=${{ __html: MASCOT }}></div><div class="bubble" style="margin-bottom:6px;font-size:13px">${mascotLine(b, t)}</div></div></div>${showWeek ? html`<${WeekStrip} b=${b} />` : ''}</div>`;
+      <${NoteCards} b=${b} max=${2} />${nextCard}${stands}<div class="mascot-row" style="margin-top:0"><div class="mascot" style="width:64px;height:64px" dangerouslySetInnerHTML=${{ __html: MASCOT }}></div><div class="bubble" style="margin-bottom:6px;font-size:13px">${mascotLine(b, t)}</div></div></div>${showWeek ? html`<${WeekStrip} b=${b} />` : ''}</div>`;
   return html`<div class=${'ambient' + (showWeek ? ' withweek' : '')} onClick=${onWake}><div><div class="clock">${fmtClock(t)}</div><div class="date">${longDate(b.today)}</div>
     ${w ? html`<div class="wxamb"><span class="ico">${w.current.icon}</span><div class="t">${w.current.temp}°<small>feels like ${w.current.feels}°, ${w.current.label.toLowerCase()}</small></div><div class="facts2"><span>High <b>${d0?.high}°</b></span><span>Low <b>${d0?.low}°</b></span><span>Rain <b>${d0?.rainPct}%</b></span><span>Wind <b>${w.current.wind} ${b.config.weather.units === 'celsius' ? 'km/h' : 'mph'}</b></span><span>Sunrise <b>${d0?.sunrise}</b></span><span>Sunset <b>${d0?.sunset}</b></span>${b.tip ? html`<span style="color:#8a4b00">${b.tip}</span>` : ''}</div><div class="hourly">${hrs.map((x) => html`<div>${x.hour}<span>${x.icon}</span><b>${x.temp}°</b></div>`)}</div></div>` : ''}
     <div class="mascot-row" style="margin-top:30px"><div class="mascot" dangerouslySetInnerHTML=${{ __html: MASCOT }}></div><div class="bubble">${mascotLine(b, t)}</div></div></div>
-    <div class="right">${nextCard}${stands}${showWeek ? '' : b.notes.slice(0, 2).map((n) => html`<div class="note">${n.text}</div>`)}</div>${showWeek ? html`<${WeekStrip} b=${b} />` : ''}</div>`;
+    <div class="right"><${NoteCards} b=${b} max=${2} />${nextCard}${stands}</div>${showWeek ? html`<${WeekStrip} b=${b} />` : ''}</div>`;
 }
 // Night: a nearly black screen with a dim clock that drifts slowly so nothing burns in. A web page can't lower the real brightness, so it goes dark instead.
 function Sleep({ onWake }) {
@@ -348,6 +357,7 @@ function GoodMorning({ b, onDone, openKid }) {
   const done = () => { try { localStorage.setItem(gmKey, b.today); } catch {} onDone(); };
   return html`<div class="gm">
     <div class="gmtop"><div><h1>Good morning! ☀️</h1><div class="gmdate">${longDate(b.today)} · ${b.isSchoolDay ? 'school day' : 'no school today'}</div></div><div class="clock">${fmtClock(t)}</div></div>
+    <${NoteCards} b=${b} />
     <div class="gmgrid" style=${{ '--gmk': b.kids.length }}>
       <div class="card gmwx">${w ? html`<span class="ico">${w.current.icon}</span><div><b>${w.current.temp}° now</b> · high ${d0?.high}°, low ${d0?.low}°<small>${d0 ? `rain ${d0.rainPct}%` : ''}${b.tip ? ' · ' + b.tip : ''}</small></div>` : html`<div>Weather is loading…</div>`}</div>
       ${b.kids.map((k) => { const ms = k.today.filter((x) => x.when === 'morning' && !x.doneByOther); const list = ms.length ? ms : k.today.filter((x) => !x.doneByOther).slice(0, 4); return html`<button class="card gmkid" style=${{ '--kc': k.color }} onClick=${() => { done(); openKid(k.id); }}>
@@ -435,6 +445,9 @@ function ParentToday({ b, refresh, setPage, openEv, withPin, openParents }) {
     ${claims.length || rq.length ? html`<div class="card ptcard ptneeds"><div class="pth">✋ Needs you</div>
       ${claims.map((c) => html`<div class="ptrow"><b style=${{ color: kn(c.kid)?.color }}>${kn(c.kid)?.name}</b><span>${c.title} <small>★ ${c.stars}</small></span><button class="pill sm" onClick=${() => decide('/api/quest/decide', c.id, true)}>Yes</button><button class="pill sm ghost" onClick=${() => decide('/api/quest/decide', c.id, false)}>No</button></div>`)}
       ${rq.map((r) => html`<div class="ptrow"><b style=${{ color: kn(r.kid)?.color }}>${kn(r.kid)?.name}</b><span>${r.emoji} ${r.title} <small>★ ${r.cost}</small></span><button class="pill sm" onClick=${() => decide('/api/reward/decide', r.id, true)}>Yes</button><button class="pill sm ghost" onClick=${() => decide('/api/reward/decide', r.id, false)}>Not now</button></div>`)}</div>` : ''}
+    ${b.notes.length ? html`<div class="card ptcard"><div class="pth">📌 On the kitchen screen <span>${b.notes.length}</span></div>
+      ${b.notes.map((n) => html`<div class="ptrow"><span>${n.text} <small>${n.from_who ? 'from ' + n.from_who + ' · ' : ''}${ago(n.created_at)}</small></span><button class="pill sm ghost" onClick=${async () => { await del('/api/note/' + n.id); chime('ok'); refresh(); }}>Remove</button></div>`)}
+      <button class="ptmore" onClick=${() => setQuick('note')}>+ Post another note</button></div>` : ''}
     <div class="card ptcard"><div class="pth">⭐ ${andList(b.kids.map((k) => k.name))} today</div>
       ${b.kids.map((k) => { const mine = k.today.filter((t) => !t.doneByOther); const done = mine.filter((t) => t.done).length; const left = mine.filter((t) => !t.done); const m = minsUntil(k.leaveTime, now);
         return html`<button class="ptkid" onClick=${() => setPage(k.id)}><${Avatar} kid=${k} size="48px" /><div class="ptk"><div><b>${k.name}</b> <span class="ptc">${done}/${mine.length}</span>${b.isSchoolDay && m > 0 && m < 240 ? html`<em>out the door in ${m} min</em>` : ''}</div>
@@ -499,7 +512,7 @@ function App() {
   const pagesRef = useRef(); const idleRef = useRef(Date.now()); const timerCb = useRef(null); const pinApi = usePin();
   pinApi.setParent(b?.me?.kind === 'parent');
   const bootVersion = useRef(null); const [update, setUpdate] = useState(false);
-  const refresh = useCallback(async () => { try { const j = await api('/api/board'); setMascot(j.config.family); if (!bootVersion.current) bootVersion.current = j.version; else if (j.version && j.version !== bootVersion.current) setUpdate(true); setB(j); setErr(''); } catch (e) { setErr(e.message); } }, []);
+  const refresh = refreshBoard = useCallback(async () => { try { const j = await api('/api/board'); setMascot(j.config.family); if (!bootVersion.current) bootVersion.current = j.version; else if (j.version && j.version !== bootVersion.current) setUpdate(true); setB(j); setErr(''); } catch (e) { setErr(e.message); } }, []);
   useEffect(() => { const back = () => { if (document.visibilityState === 'visible') refresh(); }; document.addEventListener('visibilitychange', back); return () => document.removeEventListener('visibilitychange', back); }, [refresh]);
   useEffect(() => { refresh(); const i = setInterval(refresh, 60000); const c = setInterval(() => setClock(new Date()), 1000); return () => { clearInterval(i); clearInterval(c); }; }, []);
   useEffect(() => { const bump = () => { if (ambient && Date.now() - idleRef.current < 400) return; idleRef.current = Date.now(); if (ambient) setAmbient(false); }; ['pointerdown', 'keydown', 'touchstart'].forEach((e) => addEventListener(e, bump, { passive: true })); const i = setInterval(() => { if (b && b.me?.kind !== 'parent' && !(b.auth?.local && localStorage.getItem('fb-view') === 'parent') && !parents && !timer && Date.now() - idleRef.current > (b.config.ambient.idleMinutes || 2) * 60000) setAmbient(true); }, 5000); return () => { ['pointerdown', 'keydown', 'touchstart'].forEach((e) => removeEventListener(e, bump)); clearInterval(i); }; }, [b, parents, ambient, timer]);

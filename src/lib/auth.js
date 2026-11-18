@@ -64,7 +64,7 @@ export async function googleFinish(env, req, origin) {
 export const clearGoogleCookie = () => 'fbo=; Path=/auth; Max-Age=0; HttpOnly; SameSite=Lax; Secure';
 
 // Pages (served before the app loads, so plain HTML)
-const page = (title, inner, status = 200) => new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${title}</title><link rel="icon" href="/icon.svg"><style>
+const page = (title, inner, status = 200) => new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${title}</title><link rel="icon" href="/icon.svg"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><link rel="manifest" href="/manifest.webmanifest"><style>
 *{box-sizing:border-box}body{font-family:Nunito,system-ui,-apple-system,sans-serif;background:linear-gradient(160deg,#eaf7ee,#d9f0e2 55%,#e6f4ff);margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;color:#1f2a44}
 .card{background:#fff;border-radius:24px;padding:26px 28px;box-shadow:0 10px 30px rgba(31,90,60,.12);width:min(400px,100%)}h1{font-size:24px;color:#1f3a5f;margin:0 0 4px}p{color:#6b7280;font-size:14px;margin:0 0 14px;line-height:1.4}
 label{display:block;font-weight:800;font-size:13px;margin:12px 0 4px;color:#3b4a66}input[type=email],input[type=password],input[type=text]{font-size:17px;width:100%;padding:11px 13px;border:2px solid #cfe5d6;border-radius:12px}input:focus{outline:none;border-color:#1f3a5f}

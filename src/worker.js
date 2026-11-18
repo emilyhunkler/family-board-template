@@ -323,7 +323,7 @@ export default {
       if (code && (A.sameString(await sha('fb:' + code), g.hash) || (env.SETUP_CODE && A.sameString(code, String(env.SETUP_CODE).trim())))) { await A.clearLimit(env, 'code:' + ip); return redirect('/', `fb=${g.hash}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax; Secure`); }
       await A.fail(env, 'code:' + ip, 60 * 60); return A.legacyCodePage('That code is not right.', !!env.SETUP_CODE);
     }
-    const openPaths = ['/icon.svg', '/manifest.webmanifest', '/api/health'];
+    const openPaths = ['/icon.svg', '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png', '/apple-touch-icon-precomposed.png', '/manifest.webmanifest', '/api/health'];
     const local = url.hostname.startsWith('localhost') || url.hostname === '127.0.0.1';
     if (!openPaths.includes(path)) {
       if (userCount) { if (!session) return path.startsWith('/api/') ? json({ error: 'sign in', needLogin: true }, 401) : A.signInPage({ name: (await getConfig(env)).family?.name, google: A.googleOn(env) }); }
