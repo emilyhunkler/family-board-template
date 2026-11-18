@@ -185,4 +185,10 @@ html.dark .gl-e.live b{color:#a6e2c1}
 html.dark .gl-e.live{background:#1e3b28}
 html.dark .gl-e.din i{background:#ffc857;color:#1f2a44}
 html.dark .bubble.urgent{background:#453e23}
+html.dark .qdots i.no{background:#ff7a90;color:#1f2a44}
+html.dark .qch button{background:#1b222d}
+html.dark .qch button.right{background:#1f3d2a}
+html.dark .qch button.wrong{background:#391e22}
+html.dark .qwhy.ok{background:#1f3d2a}
+html.dark .qwhy.no{background:#453e23}
 html.dark body{background:linear-gradient(160deg,#111a26 0%,#13201d 55%,#121a2b 100%)}

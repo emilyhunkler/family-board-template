@@ -106,6 +106,7 @@ async function board(env, cfg, req, url) {
     env.DB.prepare('SELECT * FROM notes WHERE expires_at IS NULL OR expires_at>? ORDER BY created_at DESC').bind(nowIso()).all().then((r) => r.results),
     env.DB.prepare('SELECT * FROM events_log ORDER BY id DESC LIMIT 30').all().then((r) => r.results),
   ]);
+  const quizRuns = await env.DB.prepare('SELECT id, date, week, kid, subject, grade, score, total, stars, missed, asked FROM quiz_runs WHERE date>=? ORDER BY id DESC').bind(addDaysYmd(today, -120)).all().then((r) => r.results).catch(() => []);
   const rewardReqs = (await env.DB.prepare("SELECT * FROM reward_requests WHERE status='pending' OR requested_at>? ORDER BY id DESC").bind(new Date(Date.now() - 14 * 86400000).toISOString()).all()).results;
   const photoIds = cfg.photos?.onScreensaver === false ? [] : (await env.DB.prepare('SELECT id FROM photos WHERE hidden=0 ORDER BY id DESC LIMIT 300').all()).results.map((r) => r.id);
   const lifetimeApproved = await env.DB.prepare("SELECT kid, SUM(stars) AS s FROM quest_claims WHERE status='approved' GROUP BY kid").all().then((r) => Object.fromEntries(r.results.map((x) => [x.kid, x.s])));
@@ -121,6 +122,7 @@ async function board(env, cfg, req, url) {
     const ward = await getSetting(env, 'wardrobe:' + k.id, { owned: [], look: {} });
     const jar = ledger.filter((l) => l.kid === k.id && l.kind === 'jar').reduce((s, l) => s + l.amount, 0);
     kids.push({ ...k, today: dayList, week, streak: st, lifetime, level: P.level(lifetime, cfg), wardrobe: { ...ward, balance: lifetime - spent, spent }, jar, goal: await getSetting(env, 'goal:' + k.id, null),
+      quiz: quizState(cfg, k, quizRuns.filter((q) => q.kid === k.id), wk),
       rewardRequests: rewardReqs.filter((r) => r.kid === k.id), pendingClaims: claims.filter((c) => c.kid === k.id && c.status === 'pending'), weekClaims: claims.filter((c) => c.kid === k.id && c.date >= wk) });
   }
   const turnText = instToday.filter((i) => i.turn).map((i) => `${cfg.kids.find((k) => k.id === i.kids[0])?.name} has ${i.title.toLowerCase()} today`).join('. ');
@@ -158,6 +160,30 @@ async function addGroceries(env, text, by) {
     const r = await env.DB.prepare('INSERT INTO groceries(text,aisle,added_by,added_at) VALUES(?,?,?,?)').bind(it, H.aisleFor(it), by || null, nowIso()).run(); out.push(r.meta.last_row_id);
   }
   return out;
+}
+// Brain quests: how many are left this week, recent scores (for the level nudge and the grown-ups' summary),
+// and recently asked questions so the bank doesn't repeat itself.
+const quizGradeFor = (k) => Math.max(1, Math.min(8, P.num(k.quizGrade, Math.max(1, Math.min(8, P.num(k.age, 8) - 5)))));
+function quizState(cfg, k, runs, wk) {
+  const q = cfg.quiz || {}; const week = runs.filter((r) => r.week === wk); const per = P.num(q.perWeek, 3);
+  const parse = (s) => { try { return JSON.parse(s || '[]'); } catch { return []; } };
+  return { on: q.enabled !== false, grade: quizGradeFor(k), perWeek: per, left: Math.max(0, per - week.length), questions: P.num(q.questions, 5), starsEach: P.num(q.starsEach, 1), perfectBonus: P.num(q.perfectBonus, 1), region: q.region || 'us',
+    week: week.map((r) => ({ subject: r.subject, score: r.score, total: r.total, stars: r.stars, date: r.date, missed: parse(r.missed) })),
+    recent: runs.slice(0, 5).map((r) => ({ score: r.score, total: r.total, grade: r.grade })), asked: runs.slice(0, 40).flatMap((r) => parse(r.asked)) };
+}
+async function finishQuiz(env, cfg, body, today) {
+  const k = cfg.kids.find((x) => x.id === body.kid); if (!k) return err('Unknown kid', 404); const q = cfg.quiz || {}; if (q.enabled === false) return err('Brain quests are turned off', 403);
+  const wk = P.payWeekStart(today, cfg); const done = await env.DB.prepare('SELECT count(*) AS n FROM quiz_runs WHERE kid=? AND week=?').bind(k.id, wk).first();
+  if ((done?.n || 0) >= P.num(q.perWeek, 3)) return err('No brain quests left this week. More next week!', 409);
+  const n = P.num(q.questions, 5); const results = (Array.isArray(body.results) ? body.results : []).slice(0, n); if (results.length < Math.min(3, n)) return err('Finish the quiz first', 400);
+  const subject = ['math', 'science', 'social', 'mix'].includes(body.subject) ? body.subject : 'mix'; const score = results.filter((r) => r.ok === true).length; const total = results.length;
+  const stars = score * P.num(q.starsEach, 1) + (score === total ? P.num(q.perfectBonus, 1) : 0);
+  const missed = [...new Set(results.filter((r) => !r.ok).map((r) => String(r.topic || '').slice(0, 40)).filter(Boolean))]; const asked = results.map((r) => r.id).filter((x) => typeof x === 'string').slice(0, n);
+  const label = { math: 'Math', science: 'Science', social: 'Social studies', mix: 'Surprise mix' }[subject];
+  await env.DB.prepare('INSERT INTO quiz_runs(date,week,kid,subject,grade,score,total,stars,missed,asked,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)').bind(today, wk, k.id, subject, P.num(body.grade, quizGradeFor(k)), score, total, stars, JSON.stringify(missed), JSON.stringify(asked), nowIso()).run();
+  if (stars > 0) await env.DB.prepare('INSERT INTO quest_claims(date,kid,quest,title,stars,status,claimed_at,decided_at) VALUES(?,?,?,?,?,?,?,?)').bind(today, k.id, 'brain:' + subject, `🧠 Brain quest: ${label} ${score}/${total}`, stars, 'approved', nowIso(), nowIso()).run();
+  await log(env, 'quiz', k.id, `${k.name} got ${score}/${total} on a ${label.toLowerCase()} brain quest`);
+  return json({ ok: true, score, total, stars });
 }
 async function claimQuest(env, cfg, kid, questId, title, stars, today) {
   const q = (cfg.quests || []).find((x) => x.id === questId); const t = q ? q.title : title; const s = q ? q.stars : P.num(stars, 1); if (!t) return err('quest not found', 404);
@@ -409,6 +435,7 @@ export default {
       if (path === '/api/todo' && method === 'POST') { if (!body.title) return err('title required'); await env.DB.prepare('INSERT INTO todos(date,kid,title,stars,created_at) VALUES(?,?,?,?,?)').bind(body.date || today, body.kid || null, body.title, P.num(body.stars, 1), nowIso()).run(); return json({ ok: true }); }
       if (path.startsWith('/api/todo/') && method === 'DELETE') { if (!admin()) return denyAdmin(req); await env.DB.prepare('DELETE FROM todos WHERE id=?').bind(+path.split('/')[3]).run(); return json({ ok: true }); }
       if (path === '/api/quest/claim' && method === 'POST') return claimQuest(env, cfg, body.kid, body.questId, body.title, body.stars, today);
+      if (path === '/api/quiz/finish' && method === 'POST') return finishQuiz(env, cfg, body, today);
       if (path === '/api/quest/decide' && method === 'POST') { if (!admin()) return denyAdmin(req); await env.DB.prepare('UPDATE quest_claims SET status=?, decided_at=? WHERE id=?').bind(body.approve ? 'approved' : 'denied', nowIso(), body.id).run(); return json({ ok: true }); }
       if (path === '/api/wardrobe/look' && method === 'POST') { const ward = await getSetting(env, 'wardrobe:' + body.kid, { owned: [], look: {} }); ward.look = body.look || {}; await setSetting(env, 'wardrobe:' + body.kid, ward); return json({ ok: true }); }
       if (path === '/api/wardrobe/buy' && method === 'POST') {

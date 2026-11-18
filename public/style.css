@@ -435,3 +435,22 @@ button.bubble{display:block;text-align:left;font:inherit;font-weight:800;color:i
 .bubble.ask{border:2px dashed var(--line)}
 .bubble.urgent{background:#fff3c4;border:2px solid #ffc857;animation:nudge 2.4s ease-in-out infinite}
 @keyframes nudge{0%,100%{transform:none}50%{transform:translateY(-2px)}}
+/* Brain quests */
+.brainrow{display:flex;align-items:center;gap:14px;margin-top:6px}.braintxt{flex:1;font-weight:700;font-size:14px;color:var(--ink2)}
+.brainhist{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.brainhist span{background:var(--soft);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:900}
+.sheet.quiz{width:min(720px,100%);padding:24px 26px}
+.qsub{color:var(--muted);font-weight:700;margin:6px 0 14px}
+.qsubj{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.qsubj button{background:var(--soft);border-radius:20px;padding:20px 14px;font-family:var(--head);font-weight:800;font-size:20px;display:flex;flex-direction:column;align-items:center;gap:6px}.qsubj button span{font-size:40px}
+.qtop{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:12px;font-weight:900;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-right:36px}
+.qdots{display:flex;gap:6px}.qdots i{width:12px;height:12px;border-radius:50%;background:var(--soft2)}.qdots i.on{background:var(--kc,#5aa9ff)}.qdots i.ok{background:#2f8f5b}.qdots i.no{background:#ff7a90}
+.qq{font-family:var(--head);font-weight:800;font-size:28px;line-height:1.2;margin:16px 0 18px;display:flex;gap:10px;align-items:flex-start;justify-content:space-between}
+.qsay{flex:none;font-size:22px;background:var(--soft);border-radius:50%;width:44px;height:44px}
+.qch{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.qch button{background:#fff;border:3px solid var(--line);border-radius:18px;padding:16px 14px;font-family:var(--head);font-weight:800;font-size:21px;min-height:68px;text-align:center;transition:transform .1s}
+.qch button:active{transform:scale(.98)}.qch button.right{background:#e3f6ea;border-color:#2f8f5b}.qch button.wrong{background:#ffe3e8;border-color:#ff7a90}.qch button.dim{opacity:.5}
+.qwhy{margin-top:14px;border-radius:16px;padding:12px 16px;font-weight:700;font-size:16px}.qwhy.ok{background:#e3f6ea}.qwhy.no{background:#fff3c4}
+.qnext{margin-top:14px;float:right;font-size:18px;padding:12px 24px}
+.qdone{text-align:center;padding:10px 0}.qdone .big{font-size:72px}.qdone h3{font-size:30px;margin:6px 0}.qdone p{font-weight:700;font-size:17px}
+@media (max-width:600px){.qq{font-size:22px}.qch{grid-template-columns:1fr}.qch button{font-size:18px;min-height:56px}.qsubj button{font-size:17px;padding:14px 10px}.qsubj button span{font-size:32px}}
+.ptsub{display:block;color:var(--muted);font-weight:700;font-size:12px;margin-top:2px}

@@ -59,6 +59,8 @@ export default {
     { id: 'r5', title: 'Special one-on-one time with a grown-up', emoji: '💛', cost: 30, who: 'both' },
     { id: 'r6', title: 'Skip one chore', emoji: '🎟️', cost: 25, who: 'both' },
   ],
+  // Brain quests: short quizzes for bonus stars. Each kid's level is kids[].quizGrade (1 to 8), set a grade up if they're ahead.
+  quiz: { enabled: true, perWeek: 3, questions: 5, starsEach: 1, perfectBonus: 1, region: 'us' },
   photos: { onScreensaver: true, seconds: 20 },
   notify: { morningAt: '06:45' },
   prize: { title: 'Ice cream trip', emoji: '🍦', missesAllowed: 1, bonusStars: 8 },
