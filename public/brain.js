@@ -23,7 +23,7 @@ function Quiz({ b, k, onClose, refresh }) {
   const grade = useMemo(() => quizGrade(z.grade, z.recent), [z.grade]);
   const qs = useMemo(() => (subject ? buildQuiz({ subject, grade, region: z.region, asked: z.asked, n: z.questions }) : []), [subject]);
   const q = qs[i]; useEffect(() => { if (!qs[0]) return; say(qs[0].q); prewarm(qs.flatMap((x, j) => [x.why, j ? x.q : ''])); }, [qs]);
-  const choose = (c) => { if (picked != null) return; setPicked(c); const ok = c === q.right; chime(ok ? 'ok' : 'bad'); setResults((r) => [...r, { id: q.id, ok, topic: q.topic }]); say(q.why); // the chime and colors already say right or wrong; one clip per answer keeps the voice within its daily limit };
+  const choose = (c) => { if (picked != null) return; setPicked(c); const ok = c === q.right; chime(ok ? 'ok' : 'bad'); setResults((r) => [...r, { id: q.id, ok, topic: q.topic }]); say(q.why); }; // the chime and colors already say right or wrong; one clip per answer keeps the voice within its daily limit
   const next = async () => {
     if (i + 1 < qs.length) { setI(i + 1); setPicked(null); say(qs[i + 1].q); return; }
     setBusy(true); try { const r = await api('/api/quiz/finish', { kid: k.id, subject, grade, results }); setDone(r); if (r.score === r.total) { confetti(); chime('win'); } else chime('ok'); say(r.score === r.total ? `Perfect! ${r.stars} stars!` : `You got ${r.score} out of ${r.total}. ${r.stars} stars!`); refresh(); } catch (e) { toast(e.message); } finally { setBusy(false); }
