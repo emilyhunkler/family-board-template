@@ -24,6 +24,7 @@ const slug = (s, taken) => { let b = String(s || 'kid').toLowerCase().normalize(
 // A brand-new board starts with empty names (with examples as hints) rather than made-up people to erase.
 function blankStart(x) {
   const n = structuredClone(x); if (n.family.name === 'Our Family') n.family.name = '';
+  try { const tz = Intl.DateTimeFormat().resolvedOptions().timeZone; if (tz && n.weather.lat == null) n.zone = tz; } catch {} // until they pick a town, use this device's time zone
   n.family.parents = n.family.parents.map((p) => (['Mom', 'Dad'].includes(p.name) ? { ...p, name: '', match: [] } : p));
   if (n.kids.map((k) => k.name).join() === 'Alex,Sam') n.kids = [{ ...n.kids[0], name: '' }];
   return n;

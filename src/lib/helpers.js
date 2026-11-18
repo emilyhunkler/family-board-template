@@ -47,7 +47,7 @@ const hasWord = (text, w) => !!w && new RegExp(`(^|[^\\p{L}\\p{N}])${esc(w.toLow
 export function eventPeople(ev, cfg) {
   const t = (ev.title || '').toLowerCase(); const ids = [];
   for (const k of cfg.kids) if ([k.name, ...(k.match || [])].some((w) => hasWord(t, w))) ids.push(k.id);
-  const groups = cfg.family.groupWords || ['the girls', 'the kids', 'both girls', 'both kids'];
+  const groups = cfg.family.groupWords || ['the kids', 'both kids', 'all kids'];
   if (groups.some((w) => hasWord(t, w))) for (const k of cfg.kids) if (!ids.includes(k.id)) ids.push(k.id);
   for (const pa of cfg.family.parents) if ([pa.name, ...(pa.match || [])].some((w) => hasWord(t, w))) ids.push(pa.id);
   if (!ids.length && ev.owner) ids.push(ev.owner);
