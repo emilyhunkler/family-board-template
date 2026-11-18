@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'https://cdn.j
 import htm from 'https://cdn.jsdelivr.net/npm/htm@3.1.1/+esm';
 import { Parents } from './parents.js';
 import { useVoice, speak, dictate, primeSpeech } from './voice.js';
+import { TRIVIA, JOKES, FACTS, WOULD_YOU_RATHER, GEAR } from './fun.js';
 export const html = htm.bind(h);
 
 // ---------- helpers ----------
@@ -117,18 +118,60 @@ function Home({ b, go, openEv, setPage }) {
     <div class="card prize"><div class="ic">${prize.emoji}</div><div class="t">This week's prize: ${prize.title}<small>Every task all week (${prize.missesAllowed} miss${prize.missesAllowed === 1 ? '' : 'es'} allowed) and ${prize.bonusStars} bonus stars.</small></div>
       <div class="pb">${b.kids.map((k) => html`<div>${k.name} · ${k.week.prize.onTrack ? `${k.week.misses} miss${k.week.misses === 1 ? '' : 'es'}` : 'missed too many'} · ★ ${k.week.bonusStars}/${prize.bonusStars}<div class="bar"><i style=${{ width: Math.round(100 * k.week.prize.progress) + '%', background: k.color }}></i></div></div>`)}</div></div>
     <div class="now">${todays.length ? todays.map((e) => { const s = new Date(e.start), en = new Date(e.end); const live = !e.allDay && s <= now && now < en; const past = en < now; return html`<div class=${'card ev' + (live ? ' live' : past ? ' past' : '')} onClick=${() => openEv(e)}><span class="tm">${live ? 'Now' : e.timeLabel}</span><span class="pip" style=${{ background: e.color }}></span><span class="tt">${e.emoji} ${e.title}<small>${e.who}${e.place ? ' · leave ' + e.place.leaveBy : ''}${e.location ? ' · ' + e.location.split(',')[0] : ''}</small></span></div>`; }) : html`<div class="card ev"><span class="tt">Nothing on the calendar today 🎈</span></div>`}</div>
-    <div class="mascot-row"><div class="mascot" dangerouslySetInnerHTML=${{ __html: MASCOT }}></div><div class="bubble">${mascotLine(b, now)}</div></div>
+    <div class="mascot-row"><div class="mascot" dangerouslySetInnerHTML=${{ __html: MASCOT }}></div><${MascotBubble} b=${b} now=${now} /></div>
   </div>`;
 }
 function leaveText(k, now) { const m = minsUntil(k.leaveTime, now); if (m > 0 && m <= 180) return ` · out the door in ${m} min`; if (m <= 0 && m > -600) return ' · have a great day'; return ''; }
 const woof = (b) => ({ dog: 'Woof! ', cat: 'Meow! ' })[b.config.family.petKind || (b.config.family.dog ? 'dog' : '')] || '';
-function mascotLine(b, now) {
-  const dog = b.config.family.dog; const hungry = b.kids.flatMap((k) => k.today.filter((t) => !t.done && /feed/i.test(t.title) && t.kids.includes(k.id)).map((t) => k.name))[0];
-  if (hungry && dog) return `${woof(b)}${hungry}, I'm hungry 🐾`;
-  for (const k of b.kids) { const m = minsUntil(k.leaveTime, now); if (b.isSchoolDay && m > 0 && m <= 10) return `${k.name}, out the door in ${m} minute${m === 1 ? '' : 's'}! 🎒`; }
-  const allDone = b.kids.filter((k) => k.today.length && k.today.every((t) => t.done)); if (allDone.length) return `${andList(allDone.map((k) => k.name))} finished everything today. Good job! 🎉`;
-  const next = b.events.find((e) => e.date === b.today && new Date(e.start) > now && !e.allDay); if (next) return `Next up: ${next.title} at ${next.timeLabel}${next.place ? '. Leave by ' + next.place.leaveBy : ''}.`;
-  const lines = [dog ? `${dog} says hi 🐾` : 'Hi there! 🌞', 'Who wants to earn a bonus star today?', 'Tap your picture to see your list.', `Say "Hey calendar, what's next" to ask me.`]; return lines[Math.floor(now.getMinutes() / 15) % lines.length];
+// What the mascot says. Time-sensitive reminders always win (leave soon, out the door, bedtime, pay day).
+// Otherwise it takes turns: a nudge or a cheer, then something fun (trivia, a joke, a fact, would-you-rather),
+// changing every 2 minutes. Every screen shows the same line, and the day starts at a different spot in the list.
+const SLOT_MIN = 2;
+const daySeed = (ymd) => [...ymd].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
+const funPool = (() => { let cache; return () => { if (cache) return cache; const t = TRIVIA.map(([q, a]) => ({ text: q, answer: a, kind: 'trivia' })), j = JOKES.map(([q, a]) => ({ text: q, answer: a, kind: 'joke' })), f = FACTS.map((x) => ({ text: 'Did you know? ' + x, kind: 'fact' })), w = WOULD_YOU_RATHER.map((x) => ({ text: x, kind: 'wyr' }));
+  cache = []; for (let i = 0; i < Math.max(t.length, j.length, f.length, w.length); i++) for (const l of [t, j, f, w]) if (l[i]) cache.push(l[i]); return cache; }; })();
+const gearFor = (title) => GEAR.find(([re]) => re.test(title))?.[1];
+const leftList = (ts) => ts.slice(0, 2).map((t) => t.title.toLowerCase()).join(' and ') + (ts.length > 2 ? ` and ${ts.length - 2} more` : '');
+export function mascotSay(b, now, skip = 0) {
+  const pet = b.config.family.dog; const mins = now.getHours() * 60 + now.getMinutes(); const hm = (s) => { const [h, m] = String(s || '').split(':').map(Number); return h * 60 + (m || 0); };
+  const mine = (k) => k.today.filter((t) => !t.doneByOther); const left = (k, when) => mine(k).filter((t) => !t.done && (when === 'morning' ? t.when === 'morning' : t.when !== 'morning'));
+  // 1. Reminders that matter right now.
+  for (const e of b.events.filter((x) => x.date === b.today && !x.allDay)) {
+    const start = new Date(e.start); const until = Math.round((start - now) / 60000); const gear = gearFor(e.title); const who = e.who ? e.who + ', ' : '';
+    if (e.place?.leaveBy) { const l = hm(e.place.leaveBy) - mins; if (l >= 0 && l <= 20) return { text: `${who}leave for ${e.title} ${l <= 1 ? 'now' : `in ${l} minutes`}! 🚗${gear ? ` Bring ${gear}.` : ''}`, urgent: true }; }
+    else if (until > 0 && until <= 15) return { text: `${e.title} starts in ${until} minute${until === 1 ? '' : 's'}!${gear ? ` Bring ${gear}.` : ''} ⏰`, urgent: true };
+  }
+  if (b.isSchoolDay) for (const k of b.kids) { const m = minsUntil(k.leaveTime, now); const l = left(k, 'morning');
+    if (m > 0 && m <= 15) return { text: `${k.name}, out the door in ${m} minute${m === 1 ? '' : 's'}! 🎒${l.length ? ` Still to do: ${leftList(l)}.` : ''}`, urgent: true };
+    if (m > 15 && m <= 45 && l.length && Math.floor(mins / SLOT_MIN) % 2 === 0) return { text: `${k.name}, ${l.length} thing${l.length === 1 ? '' : 's'} before school: ${leftList(l)}. ⏳`, urgent: true }; }
+  if (b.isSchoolDay && b.tip && b.tip !== 'Nice day' && mins < Math.max(...b.kids.map((k) => hm(k.leaveTime)), 0) && mins >= hm('06:00')) { const tipLine = { text: `Weather check: ${b.tip}! Dress for it. 🌦️`, urgent: true }; if (Math.floor(mins / SLOT_MIN) % 3 === 1) return tipLine; }
+  const amb = b.config.ambient || {}; if (amb.dimAtNight !== false && amb.sleepFrom) { const bed = hm(amb.sleepFrom) - mins; if (bed > 0 && bed <= 30) return { text: `The board goes to sleep in ${bed} minutes. Time for teeth and pajamas! 🪥🌙`, urgent: true }; }
+  if (b.payDay === b.today) { const close = hm(b.config.week?.closesAt || '18:00'); if (mins >= close && mins < close + 120) { const paid = b.kids.filter((k) => k.week.total > 0); return { text: paid.length ? `It's pay day! 💰 ${andList(paid.map((k) => `${k.name} earned ${money(k.week.total)}`))}!` : "It's pay day! 💰 Let's count up this week's stars.", urgent: true }; } if (mins >= close - 180 && mins < close && Math.floor(mins / SLOT_MIN) % 2 === 0) return { text: `Pay day today at ${b.config.week?.closesAt}! Finish your jobs to earn the most. 💰`, urgent: true }; }
+  // 2. Nudges and cheers, which take turns with the fun.
+  const turns = [];
+  const hungry = pet && b.kids.find((k) => mine(k).some((t) => !t.done && /feed|walk/i.test(t.title)));
+  if (hungry) { const t = mine(hungry).find((x) => !x.done && /feed|walk/i.test(x.title)); turns.push({ text: `${woof(b)}${hungry.name}, ${/walk/i.test(t.title) ? 'walk time?' : "I'm hungry!"} 🐾` }); }
+  if (mins >= hm('15:00')) for (const k of b.kids) { const l = left(k, 'after'); if (l.length) turns.push({ text: `${k.name}, ${l.length} job${l.length === 1 ? '' : 's'} left today: ${leftList(l)}. You've got this! 💪` }); }
+  const done = b.kids.filter((k) => mine(k).length && mine(k).every((t) => t.done)); if (done.length) turns.push({ text: `${andList(done.map((k) => k.name))} finished everything today. High five! 🙌` });
+  for (const k of b.kids) { if (k.streak >= 3) turns.push({ text: `${k.name} is on a ${k.streak} day streak! 🔥 Keep it going!` }); if (k.level?.toNext > 0 && k.level.toNext <= 15) turns.push({ text: `${k.name} is only ${k.level.toNext} stars from level ${k.level.level + 1}! ⭐` }); }
+  const next = b.events.find((e) => e.date === b.today && new Date(e.start) > now && !e.allDay); if (next && turns.length < 2) turns.push({ text: `Coming up: ${next.title} at ${next.timeLabel}. 📅` });
+  // 3. Something fun, the same on every screen at the same time.
+  const slot = Math.floor(mins / SLOT_MIN) + skip; const fun = [];
+  const dow = now.getDay(); if (dow === 5) fun.push({ text: 'Happy Friday! 🎉 What should we do this weekend?' }); if (dow === 1) fun.push({ text: 'New week, new stars! ⭐ Let’s go!' }); if (dow === 0 || dow === 6) fun.push({ text: 'Weekend! 🎈 What’s the fun plan today?' });
+  const wx = b.weather?.current; if (wx && wx.temp <= 32) fun.push({ text: `It's ${wx.temp}° outside. Even snowmen want hats today! ⛄` }); if (wx && wx.temp >= 88) fun.push({ text: `It's ${wx.temp}° out. Drink some water and find some shade! 💧` });
+  if (pet) fun.push({ text: `${woof(b)}${pet} says hi! 🐾` }, { text: `${pet} would like a belly rub, please. 🐾` });
+  const pool = funPool(); const pick = (n) => { const i = (daySeed(b.today) + n * 7) % pool.length; return pool[i]; };
+  const funNow = slot % 5 === 4 && fun.length ? fun[Math.floor(slot / 5) % fun.length] : pick(slot);
+  if (turns.length && slot % 2 === 0) return turns[Math.floor(slot / 2) % turns.length];
+  return funNow;
+}
+export const mascotLine = (b, now) => mascotSay(b, now).text;
+// The mascot's speech bubble. Tap a question to see and hear the answer; tap again for something new.
+function MascotBubble({ b, now, style }) {
+  const [skip, setSkip] = useState(0); const [open, setOpen] = useState(false);
+  const line = mascotSay(b, now, skip); useEffect(() => setOpen(false), [line.text]);
+  const tap = (e) => { e.stopPropagation(); if (line.answer && !open) { setOpen(true); chime('ok'); speak(line.answer.replace(/[\p{Extended_Pictographic}‍️]/gu, '')); } else if (!line.urgent) { setSkip((n) => n + 1); } else speak(line.text.replace(/[\p{Extended_Pictographic}‍️]/gu, '')); };
+  return html`<button class=${'bubble' + (line.urgent ? ' urgent' : '') + (line.answer ? ' ask' : '')} style=${style} onClick=${tap}>${line.text}${line.answer ? (open ? html`<b class="ans">${line.answer}</b>` : html`<small class="tapme">${line.kind === 'joke' ? 'Tap me for the funny part!' : 'Tap me for the answer!'}</small>`) : ''}</button>`;
 }
 
 function KidPage({ b, k, refresh, setPage, startTimer, withPin }) {
@@ -359,10 +402,10 @@ function Ambient({ b, onWake }) {
     <div class="photo">${photos.map((id, i) => html`<img key=${id} src=${i === pi || i === (pi + 1) % photos.length ? `/api/photo/${id}` : ''} class=${i === pi ? 'on' : ''} alt="" />`)}</div>
     <div class="right"><div><div class="clock" style="font-size:96px">${fmtClock(t)}</div><div class="date" style="font-size:22px">${longDate(b.today)}</div></div>
       ${w ? html`<div class="card next" style="display:flex;align-items:center;gap:14px"><span style="font-size:48px">${w.current.icon}</span><div class="t" style="margin:0">${w.current.temp}° · ${d0?.high}°/${d0?.low}°<small>feels like ${w.current.feels}° · rain ${d0?.rainPct}%${b.tip ? ' · ' + b.tip : ''}</small></div></div>` : ''}
-      <${NoteCards} b=${b} max=${2} />${nextCard}${stands}<div class="mascot-row" style="margin-top:0"><div class="mascot" style="width:64px;height:64px" dangerouslySetInnerHTML=${{ __html: MASCOT }}></div><div class="bubble" style="margin-bottom:6px;font-size:13px">${mascotLine(b, t)}</div></div></div>${showWeek ? html`<${WeekStrip} b=${b} />` : ''}</div>`;
+      <${NoteCards} b=${b} max=${2} />${nextCard}${stands}<div class="mascot-row" style="margin-top:0"><div class="mascot" style="width:64px;height:64px" dangerouslySetInnerHTML=${{ __html: MASCOT }}></div><${MascotBubble} b=${b} now=${t} style="margin-bottom:6px;font-size:13px" /></div></div>${showWeek ? html`<${WeekStrip} b=${b} />` : ''}</div>`;
   return html`<div class=${'ambient' + (showWeek ? ' withweek' : '')} onClick=${onWake}><div><div class="clock">${fmtClock(t)}</div><div class="date">${longDate(b.today)}</div>
     ${w ? html`<div class="wxamb"><span class="ico">${w.current.icon}</span><div class="t">${w.current.temp}°<small>feels like ${w.current.feels}°, ${w.current.label.toLowerCase()}</small></div><div class="facts2"><span>High <b>${d0?.high}°</b></span><span>Low <b>${d0?.low}°</b></span><span>Rain <b>${d0?.rainPct}%</b></span><span>Wind <b>${w.current.wind} ${b.config.weather.units === 'celsius' ? 'km/h' : 'mph'}</b></span><span>Sunrise <b>${d0?.sunrise}</b></span><span>Sunset <b>${d0?.sunset}</b></span>${b.tip ? html`<span style="color:#8a4b00">${b.tip}</span>` : ''}</div><div class="hourly">${hrs.map((x) => html`<div>${x.hour}<span>${x.icon}</span><b>${x.temp}°</b></div>`)}</div></div>` : ''}
-    <div class="mascot-row" style="margin-top:30px"><div class="mascot" dangerouslySetInnerHTML=${{ __html: MASCOT }}></div><div class="bubble">${mascotLine(b, t)}</div></div></div>
+    <div class="mascot-row" style="margin-top:30px"><div class="mascot" dangerouslySetInnerHTML=${{ __html: MASCOT }}></div><${MascotBubble} b=${b} now=${t} /></div></div>
     <div class="right"><${NoteCards} b=${b} max=${2} />${nextCard}${stands}</div>${showWeek ? html`<${WeekStrip} b=${b} />` : ''}</div>`;
 }
 // Night: a nearly black screen with a dim clock that drifts slowly so nothing burns in. A web page can't lower the real brightness, so it goes dark instead.
