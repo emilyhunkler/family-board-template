@@ -99,7 +99,7 @@ function Home({ b, go, openEv, setPage }) {
     ${b.sampleData ? html`<div class="banner" style="margin:0 0 10px">Showing sample events. Add your Google calendar links in Parents → Calendar and weather.</div>` : ''}
     <div class="home">${b.kids.map((k) => html`<div class="card kc" onClick=${() => setPage(k.id)}>
       <${Avatar} kid=${k} size="150px" />
-      <div><div class="name">${k.name}<small>Level ${k.level.level} ${k.level.name} · 🔥 ${k.streak} day streak${b.isSchoolDay ? leaveText(k, now) : ''}</small></div>
+      <div><div class="name">${k.name}<small>Level ${k.level.level} ${k.level.name} ${k.streak ? ` · 🔥 ${k.streak} day streak` : ''}${b.isSchoolDay ? leaveText(k, now) : ''}</small></div>
         <div class="rings"><${Ring} pct=${k.today.length ? k.today.filter((t) => t.done && !t.doneByOther).length / k.today.filter((t) => !t.doneByOther).length : 0} color=${k.color} label="Today" text=${`${k.today.filter((t) => t.done && !t.doneByOther).length}/${k.today.filter((t) => !t.doneByOther).length}`} />
           <${Ring} pct=${k.week.possible ? k.week.earned / k.week.possible : 0} color="#ffc857" label="Week" text=${Math.round(k.week.possible ? 100 * k.week.earned / k.week.possible : 0) + '%'} />
           <${Ring} pct=${k.week.prize.progress} color="#c3a6ff" label="Prize" text=${prize.emoji} /></div>
@@ -136,7 +136,7 @@ function KidPage({ b, k, refresh, setPage, startTimer, withPin }) {
   const pendingStars = k.rewardRequests.filter((x) => x.status === 'pending').reduce((s2, x) => s2 + x.cost, 0);
   const askReward = async (r, can) => { if (!can) { toast(`${r.cost - (k.wardrobe.balance - pendingStars)} more stars to go!`); return; } try { await api('/api/reward/request', { kid: k.id, rewardId: r.id }); chime('win'); toast(`Asked! ${grownups(b)} will say yes or no.`); refresh(); } catch (e) { toast(e.message); } };
   return html`<div class="page"><div class="kid">
-    <div class="card left"><${Avatar} kid=${k} size="220px" /><div class="name">${k.name}<small>Level ${k.level.level} ${k.level.name} · ${k.level.toNext} ★ to level ${k.level.level + 1} · 🔥 ${k.streak} day streak</small></div>
+    <div class="card left"><${Avatar} kid=${k} size="220px" /><div class="name">${k.name}<small>Level ${k.level.level} ${k.level.name} · ${k.level.toNext} ★ to level ${k.level.level + 1} ${k.streak ? ` · 🔥 ${k.streak} day streak` : ''}</small></div>
       <div class="lvbar"><div class="bar"><i style=${{ width: Math.round(100 * k.level.into / k.level.per) + '%', background: k.color }}></i></div><small><span>${k.lifetime} ★ all time</span><span>${k.level.into} / ${k.level.per}</span></small></div>
       <div class="money"><b>${money(k.week.total)}</b><span>${payLabel(b) === 'today' ? 'pay day today! 💰' : 'pay day ' + payLabel(b)}</span></div><div class="days">${k.week.days.map((d) => html`<i class=${d.status} title=${d.date}></i>`)}</div>
       ${k.goal ? html`<div class="lvbar" style="margin-top:4px"><small><span>🎯 ${k.goal.title}</span><span>${money(k.jar)} / ${money(k.goal.amount)}</span></small><div class="bar"><i style=${{ width: Math.min(100, Math.round(100 * k.jar / (k.goal.amount || 1))) + '%', background: '#ffc857' }}></i></div></div>` : ''}
@@ -500,7 +500,7 @@ function App() {
   return html`
     <div class="top"><div class="left"><button class="iconbtn" title="Home" onClick=${() => setPage(homePage)}>🏠</button><button class="d" onClick=${() => setPage(homePage)}>${longDate(b.today)}<small>${b.isSchoolDay ? 'School day' : 'No school'}${leaveLine ? ' · ' + leaveLine : ''}${b.meals.find((m) => m.date === b.today) ? ' · dinner: ' + b.meals.find((m) => m.date === b.today).text : ''}</small></button></div>
       <button class="clock" onClick=${() => setPage(homePage)}>${fmtClock(now)}</button>
-      <div class="right"><${WxPill} b=${b} onClick=${() => setWx(true)} />${display ? html`<button class="iconbtn" title="Send to phones" onClick=${() => setSend(true)}>📲</button>` : ''}<button class="iconbtn" title="Feedback" onClick=${() => setFb(true)}>💬</button>${display ? html`<button class="iconbtn" title="Screensaver" onClick=${(e) => { e.stopPropagation(); setTimeout(() => { idleRef.current = Date.now(); setAmbient(true); }, 50); }}>🌙</button>` : ''}<button class="iconbtn" title="Parents" onClick=${() => setParents(true)}>⚙️</button></div></div>
+      <div class="right"><${WxPill} b=${b} onClick=${() => setWx(true)} />${display ? html`<button class="iconbtn" title="Send to phones" onClick=${() => setSend(true)}>📲<i>Send</i></button>` : ''}<button class="iconbtn" title="Ideas and feedback" onClick=${() => setFb(true)}>💬<i>Ideas</i></button>${display ? html`<button class="iconbtn" title="Screensaver" onClick=${(e) => { e.stopPropagation(); setTimeout(() => { idleRef.current = Date.now(); setAmbient(true); }, 50); }}>🌙<i>Sleep</i></button>` : ''}<button class="iconbtn" title="Grown-ups" onClick=${() => setParents(true)}>⚙️<i>Grown-ups</i></button></div></div>
     ${update ? html`<div class="updatebar"><span>✨ A new version of the board is ready.</span><button class="pill sm" onClick=${() => location.reload()}>Refresh now</button><button class="pill sm lite" onClick=${() => setUpdate(false)}>Later</button></div>` : ''}
     <div class="pages" ref=${pagesRef} onScroll=${onScroll}>
       ${pageList.map((p) => { const k = b.kids.find((x) => x.id === p);
@@ -509,7 +509,7 @@ function App() {
           wardrobe: html`<${Wardrobe} key="wardrobe" b=${b} kidId=${wardKid} refresh=${refresh} setPage=${setPage} />`, groceries: html`<${Groceries} key="groceries" b=${b} refresh=${refresh} />` }[p]; })}
     </div>
     <div class="dots">${pageList.map((p) => html`<button class=${p === page ? 'on' : ''} onClick=${() => setPage(p)} title=${p}></button>`)}</div>
-    <div class="navbar">${pageList.filter((p) => !(parentView && p === 'wardrobe')).map((p) => { const k = b.kids.find((x) => x.id === p); const ic = { week: '📅', home: '🏠', today: '🏠', wardrobe: '👗', groceries: '🛒' }[p] || '⭐'; return html`<button class=${p === page ? 'on' : ''} onClick=${() => setPage(p)}><span>${ic}</span>${k ? k.name : p[0].toUpperCase() + p.slice(1)}</button>`; })}${parentView ? html`<button onClick=${() => setParents(true)}><span>⚙️</span>Settings</button>` : ''}</div>
+    <div class="navbar">${pageList.filter((p) => !(parentView && p === 'wardrobe')).map((p) => { const k = b.kids.find((x) => x.id === p); const ic = { week: '📅', home: '🏠', today: '🏠', wardrobe: '👗', groceries: '🛒' }[p] || '⭐'; return html`<button class=${p === page ? 'on' : ''} onClick=${() => setPage(p)}>${k ? html`<${Avatar} kid=${k} size="24px" />` : html`<span>${ic}</span>`}${k ? k.name : p[0].toUpperCase() + p.slice(1)}</button>`; })}${parentView ? html`<button onClick=${() => setParents(true)}><span>⚙️</span>Settings</button>` : ''}</div>
     ${send ? html`<${SendSheet} b=${b} onClose=${() => setSend(false)} />` : ''}
     ${voice.ui}
     ${timer ? html`<${Timer} t=${timer} onDone=${() => { setTimer(null); if (timerCb.current) timerCb.current(); }} onCancel=${() => setTimer(null)} />` : ''}

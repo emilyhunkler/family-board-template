@@ -369,3 +369,19 @@ table.t{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}table.
 .ptev.past{opacity:.5}.ptev.din{background:#fff8e1}.ptev.din i{background:var(--sun)}
 .ptquick{display:flex;flex-direction:column;gap:6px}.ptquick button{text-align:left;padding:11px 12px;border-radius:14px;background:var(--soft);font-weight:900;color:var(--navy)}
 .sendsheet{width:min(520px,100%)}.sendsheet .shbtns{grid-template-columns:1fr 1fr}.shb:disabled{opacity:.5}
+
+/* Labels under the top-bar buttons on tablets; icons only on phones. */
+.iconbtn i{display:none}
+@media (min-width:821px){.top .right .iconbtn{width:auto;min-width:52px;height:52px;border-radius:16px;flex-direction:column;gap:0;padding:4px 8px;font-size:20px;line-height:1}.top .right .iconbtn i{display:block;font-style:normal;font-size:10px;font-weight:900;color:var(--muted);margin-top:3px}}
+/* Tablets: a labeled tab bar instead of the little dots, so every page is one tap away. */
+@media (min-width:821px){.dots{display:none}.navbar{display:flex;position:fixed;left:50%;transform:translateX(-50%);bottom:max(10px,env(safe-area-inset-bottom));background:#fff;border-radius:999px;box-shadow:0 8px 24px rgba(31,58,95,.16);z-index:10;padding:5px;gap:2px}
+  .navbar button{display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:999px;font-weight:900;font-size:14px;color:var(--muted);white-space:nowrap}.navbar button span{font-size:18px}.navbar button.on{background:var(--navy);color:#fff}
+  .page{padding-bottom:90px}}
+.navbar .av{flex:none}
+/* No-pet mascot: a big friendly sun, not a dot. */
+.mascot-emoji{font-size:44px}
+/* Parents menu groups */
+.pgrp{font-size:11px;font-weight:900;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;padding:12px 14px 4px}.pgrp:first-child{padding-top:4px}
+@media (max-width:820px){.pgrp{display:none}}
+.addtimer{font-size:11px;font-weight:900;color:var(--muted);background:#fff;border-radius:999px;padding:4px 10px}
+.taskrow{position:relative;padding-right:40px}.taskrow>.x{position:absolute;right:8px;top:10px}

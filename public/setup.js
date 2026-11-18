@@ -21,12 +21,19 @@ const IDEAS = [
   { title: 'Take out the recycling', emoji: '♻️', when: 'after', minAge: 9, who: 'either', rotate: true, days: [3], stars: 2 },
 ];
 const slug = (s, taken) => { let b = String(s || 'kid').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '').slice(0, 16) || 'kid'; let id = b, n = 2; while (taken.includes(id)) id = b + n++; return id; };
+// A brand-new board starts with empty names (with examples as hints) rather than made-up people to erase.
+function blankStart(x) {
+  const n = structuredClone(x); if (n.family.name === 'Our Family') n.family.name = '';
+  n.family.parents = n.family.parents.map((p) => (['Mom', 'Dad'].includes(p.name) ? { ...p, name: '', match: [] } : p));
+  if (n.kids.map((k) => k.name).join() === 'Alex,Sam') n.kids = [{ ...n.kids[0], name: '' }];
+  return n;
+}
 const STEPS = ['Welcome', 'Grown-ups', 'Kids', 'Pet', 'Home', 'Calendar', 'Chores', 'Looks', 'Finish'];
 
 export function Setup({ b, pin, onDone }) {
   const rerun = !!b.auth?.enabled; // a family that already has sign-in is running setup again
   const [c, setC] = useState(null); const [step, setStep] = useState(0); const [busy, setBusy] = useState(false);
-  useEffect(() => { api('/api/admin/config', undefined, pin).then(setC).catch((e) => toast(e.message)); }, []);
+  useEffect(() => { api('/api/admin/config', undefined, pin).then((x) => setC(rerun ? x : blankStart(x))).catch((e) => toast(e.message)); }, []);
   if (!c) return html`<div class="wiz"><div class="wizcard"><h2>Getting setup ready…</h2></div></div>`;
   const edit = (fn) => setC((x) => { const n = structuredClone(x); fn(n); return n; });
   const save = async (n = c) => { setBusy(true); try { await put('/api/admin/config', { config: n }, pin); return true; } catch (e) { toast(e.message || 'Could not save'); return false; } finally { setBusy(false); } };
@@ -35,9 +42,8 @@ export function Setup({ b, pin, onDone }) {
   const Body = [Welcome, Grownups, Kids, Pet, Home, Calendar, Chores, Looks, Finish][step];
   return html`<div class="wiz"><div class="wizcard">
     <div class="wizsteps">${STEPS.map((s, i) => html`<span class=${i === step ? 'on' : i < step ? 'done' : ''}>${i < step ? '✓' : i + 1}<b>${s}</b></span>`)}</div>
-    <${Body} c=${c} edit=${edit} b=${b} pin=${pin} rerun=${rerun} save=${save} onDone=${onDone} setBusy=${setBusy} />
+    <${Body} c=${c} edit=${edit} b=${b} pin=${pin} rerun=${rerun} save=${save} onDone=${onDone} setBusy=${setBusy} back=${back} />
     ${step < STEPS.length - 1 ? html`<div class="wiznav">${step ? html`<button class="pill lite" onClick=${back}>‹ Back</button>` : html`<span></span>`}${rerun && step === 0 ? html`<button class="pill ghost" onClick=${async () => { edit((n) => { n.setup = { done: true }; }); if (await save({ ...c, setup: { done: true } })) onDone(); }}>Cancel</button>` : ''}<button class="pill" disabled=${busy} onClick=${next}>${busy ? 'Saving…' : 'Next ›'}</button></div>` : ''}
-    ${step === STEPS.length - 1 ? html`<div class="wiznav"><button class="pill lite" onClick=${back}>‹ Back</button><span></span></div>` : ''}
   </div></div>`;
 }
 
@@ -51,14 +57,14 @@ const check = {
 function Welcome({ c, edit, rerun }) {
   return html`<h2>${rerun ? 'Run setup again' : 'Welcome to your family board! 👋'}</h2>
     <p class="wizp">${rerun ? 'Walk through the basics again. Everything you change saves as you go, and your chores, stars and history stay put.' : "Let's make it yours. It takes about ten minutes, and you can change anything later in Parents."}</p>
-    <div class="wizf"><label>What should the board be called?</label><input class="gbox" value=${c.family.name} placeholder="The Rivera Family" onInput=${(e) => edit((n) => { n.family.name = e.target.value; })} /></div>`;
+    <div class="wizf"><label>What should the board be called?</label><input class="gbox" autofocus value=${c.family.name} placeholder="The Rivera Family" onInput=${(e) => edit((n) => { n.family.name = e.target.value; })} /></div>`;
 }
 
 function Grownups({ c, edit }) {
   const ps = c.family.parents;
   return html`<h2>The grown-ups</h2><p class="wizp">Use the names the kids call you. The board says things like "Ask Mom or Dad".</p>
     ${ps.map((p, i) => html`<div class="wizrow"><input type="color" value=${p.color} onInput=${(e) => edit((n) => { n.family.parents[i].color = e.target.value; })} />
-      <div class="wizcol"><input class="gbox" value=${p.name} placeholder="What the kids call you, like Mom" onInput=${(e) => edit((n) => { const q = n.family.parents[i]; const old = q.name; q.name = e.target.value; q.match = [...new Set([q.name, ...(q.match || []).filter((w) => w !== old)].filter(Boolean))]; })} />
+      <div class="wizcol"><input class="gbox" value=${p.name} placeholder=${i === 0 ? 'What the kids call you, like Mom' : 'Like Dad, Papa or Grandma'} onInput=${(e) => edit((n) => { const q = n.family.parents[i]; const old = q.name; q.name = e.target.value; q.match = [...new Set([q.name, ...(q.match || []).filter((w) => w !== old)].filter(Boolean))]; })} />
       <input class="gbox sm" value=${(p.match || []).filter((w) => w !== p.name).join(', ')} placeholder="Also matches calendar events with… (your first name, yoga)" onInput=${(e) => edit((n) => { const q = n.family.parents[i]; q.match = [...new Set([q.name, ...e.target.value.split(',').map((x) => x.trim()).filter(Boolean)])]; })} /></div>
       ${ps.length > 1 ? html`<button class="pill ghost sm" onClick=${() => edit((n) => { n.family.parents.splice(i, 1); })}>Remove</button>` : ''}</div>`)}
     ${ps.length < 4 ? html`<button class="pill lite" onClick=${() => edit((n) => { const id = slug('parent' + (n.family.parents.length + 1), n.family.parents.map((x) => x.id)); n.family.parents.push({ id, name: '', match: [], color: COLORS[(n.family.parents.length + 4) % COLORS.length] }); })}>+ Add a grown-up</button>` : ''}`;
@@ -67,7 +73,7 @@ function Grownups({ c, edit }) {
 function Kids({ c, edit }) {
   return html`<h2>The kids</h2><p class="wizp">Ages help suggest chores. The out-the-door time is when they leave for school, so the board can count down.</p>
     ${c.kids.map((k, i) => html`<div class="wizrow"><input type="color" value=${k.color} onInput=${(e) => edit((n) => { n.kids[i].color = e.target.value; })} />
-      <div class="wizcol"><input class="gbox" value=${k.name} placeholder="Name" onInput=${(e) => edit((n) => { n.kids[i].name = e.target.value; })} />
+      <div class="wizcol"><input class="gbox" value=${k.name} placeholder=${i === 0 ? 'First kid’s name' : 'Name'} onInput=${(e) => edit((n) => { n.kids[i].name = e.target.value; })} />
         <div class="wizinline"><label>Age <input type="number" min="2" max="18" value=${k.age || ''} onInput=${(e) => edit((n) => { n.kids[i].age = +e.target.value || null; })} /></label>
         <label>Out the door <input type="time" value=${k.leaveTime} onInput=${(e) => edit((n) => { n.kids[i].leaveTime = e.target.value; })} /></label>
         <label>Allowance $<input type="number" min="0" step="0.5" value=${k.weeklyAllowance} onInput=${(e) => edit((n) => { n.kids[i].weeklyAllowance = +e.target.value || 0; })} />/wk</label></div></div>
@@ -135,12 +141,12 @@ function Looks({ c, edit }) {
       <button class="pill ghost sm" style="align-self:flex-start;margin-top:8px" onClick=${() => { const r = (l) => l[Math.random() * l.length | 0]; setLook('eyes', 'variant' + String(1 + (Math.random() * 26 | 0)).padStart(2, '0')); setLook('mouth', 'variant' + String(1 + (Math.random() * 30 | 0)).padStart(2, '0')); }}>🎲 New face</button></div></div>`;
 }
 
-function Finish({ c, edit, b, pin, rerun, save, onDone, setBusy }) {
+function Finish({ c, edit, b, pin, rerun, save, onDone, setBusy, back }) {
   const [newPin, setNewPin] = useState(rerun ? '' : ''); const [mode, setMode] = useState(b.auth?.google ? 'google' : 'password');
-  const [email, setEmail] = useState(''); const [pw, setPw] = useState(''); const [who, setWho] = useState(c.family.parents[0]?.id); const [display, setDisplay] = useState(true); const [code, setCode] = useState(''); const [working, setWorking] = useState(false);
+  const [email, setEmail] = useState(''); const [pw, setPw] = useState(''); const [who, setWho] = useState(c.family.parents[0]?.id); const [display, setDisplay] = useState(null); const [code, setCode] = useState(''); const [working, setWorking] = useState(false);
   const pinOk = rerun ? !newPin || /^\d{4,8}$/.test(newPin) : /^\d{4,8}$/.test(newPin);
   const finish = async () => {
-    if (!pinOk) { toast('Choose a PIN of 4 to 8 digits'); return; }
+    if (!pinOk) { toast('Choose a PIN of 4 to 8 digits'); return; } if (!rerun && display === null) { toast('Pick which device this is'); return; }
     setWorking(true); setBusy(true);
     const n = structuredClone(c); if (newPin) n.pin = newPin; n.setup = { done: true }; if (!n.week.startedOn) n.week.startedOn = b.today; const usePin = newPin || pin;
     try {
@@ -158,7 +164,8 @@ function Finish({ c, edit, b, pin, rerun, save, onDone, setBusy }) {
       <div class="chips big">${c.family.parents.map((p) => html`<button class=${who === p.id ? 'on' : ''} onClick=${() => setWho(p.id)}>I'm ${p.name}</button>`)}</div>
       ${b.auth?.google ? html`<div class="chips big"><button class=${mode === 'google' ? 'on' : ''} onClick=${() => setMode('google')}>Continue with Google</button><button class=${mode === 'password' ? 'on' : ''} onClick=${() => setMode('password')}>Email and password</button></div>` : ''}
       ${mode === 'password' ? html`<input class="gbox" type="email" autocomplete="username" placeholder="Email" value=${email} onInput=${(e) => setEmail(e.target.value)} /><input class="gbox" type="password" autocomplete="new-password" placeholder="Password, at least 10 characters" value=${pw} onInput=${(e) => setPw(e.target.value)} />` : ''}
-      <label class="wizcheck"><input type="checkbox" checked=${display} onChange=${(e) => setDisplay(e.target.checked)} /> This device is the shared family screen (the kitchen tablet)</label>
+      <label>Which device are you holding right now?</label><div class="chips big"><button class=${display === true ? 'on' : ''} onClick=${() => setDisplay(true)}>🖥️ The shared family screen</button><button class=${display === false ? 'on' : ''} onClick=${() => setDisplay(false)}>📱 My own phone</button></div>
+      <p class="wizp">${display === true ? 'This screen stays signed in for the whole family. Grown-up areas ask for the PIN.' : display === false ? 'Your phone gets the grown-ups’ view. Sign in on the family screen later with the same account.' : ''}</p>
       <p class="wizp">Invite the other grown-ups from Parents → Sign-in and devices once you're in.</p></div>`}
-    <div class="wiznav"><span></span><button class="pill sun big" disabled=${working} onClick=${finish}>${working ? 'Finishing…' : rerun ? 'Save and finish ✨' : mode === 'google' ? 'Finish with Google ✨' : 'Finish setup ✨'}</button></div>`;
+    <div class="wiznav"><button class="pill lite" onClick=${back}>‹ Back</button><button class="pill sun big" disabled=${working} onClick=${finish}>${working ? 'Finishing…' : rerun ? 'Save and finish ✨' : mode === 'google' ? 'Finish with Google ✨' : 'Finish setup ✨'}</button></div>`;
 }
