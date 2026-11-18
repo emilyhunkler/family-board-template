@@ -15,7 +15,7 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 // Weather is cached per place and units, so moving the board's home town shows the new forecast at once.
 const wxKey = (cfg) => `weather:${cfg.weather.units || 'fahrenheit'}:${cfg.weather.lat},${cfg.weather.lon}`;
 async function getConfig(env) {
-  const row = await env.DB.prepare('SELECT value FROM settings WHERE key=?').bind('config').first();
+  const row = await env.DB.prepare('SELECT value FROM settings WHERE key=? AND household_id=?').bind('config', env.HID).first();
   if (!row) { await saveConfig(env, defaults); return structuredClone(defaults); }
   const c = JSON.parse(row.value);
   // Boards saved before first-run setup existed were set up by hand, so they never see the wizard.
@@ -25,14 +25,14 @@ async function getConfig(env) {
   if (!c.family.groupWords) { c.family.groupWords = [...defaults.family.groupWords]; await saveConfig(env, c); }
   return c;
 }
-async function saveConfig(env, cfg) { await env.DB.prepare('INSERT INTO settings(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at').bind('config', JSON.stringify(cfg), nowIso()).run(); }
+async function saveConfig(env, cfg) { await env.DB.prepare('INSERT INTO settings(key,value,updated_at,household_id) VALUES(?,?,?,?) ON CONFLICT(household_id,key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at').bind('config', JSON.stringify(cfg), nowIso(), env.HID).run(); }
 function publicConfig(cfg) {
   const c = structuredClone(cfg); delete c.pin;
   c.calendars = c.calendars.map((x) => ({ ...x, url: undefined, hasUrl: !!x.url }));
   return c;
 }
-async function getSetting(env, key, dflt) { const r = await env.DB.prepare('SELECT value FROM settings WHERE key=?').bind(key).first(); return r ? JSON.parse(r.value) : dflt; }
-async function setSetting(env, key, val) { await env.DB.prepare('INSERT INTO settings(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at').bind(key, JSON.stringify(val), nowIso()).run(); }
+async function getSetting(env, key, dflt) { const r = await env.DB.prepare('SELECT value FROM settings WHERE key=? AND household_id=?').bind(key, env.HID).first(); return r ? JSON.parse(r.value) : dflt; }
+async function setSetting(env, key, val) { await env.DB.prepare('INSERT INTO settings(key,value,updated_at,household_id) VALUES(?,?,?,?) ON CONFLICT(household_id,key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at').bind(key, JSON.stringify(val), nowIso(), env.HID).run(); }
 // Admin (Parents) access is decided once per request: a parent's own signed-in device, or the right PIN (guesses limited).
 const ADMIN = new WeakMap();
 const pinOk = (req) => ADMIN.get(req)?.ok === true;
@@ -42,17 +42,17 @@ async function decideAdmin(env, req, body, cfg, session, userCount = 1) {
   // A brand-new board, before anyone has signed up: whoever got past the setup code is setting it up.
   if (!userCount && cfg.setup?.done === false) return { ok: true, via: 'setup' };
   const given = req.headers.get('x-pin') || body?.pin; if (!given) return { ok: false };
-  const key = 'pin:' + (session?.id || req.headers.get('cf-connecting-ip') || 'local'); const locked = await A.check(env, key, 5); if (locked) return { ok: false, lockedMin: locked };
+  const key = env.HID + ':pin:' + (session?.id || req.headers.get('cf-connecting-ip') || 'local'); const locked = await A.check(env, key, 5); if (locked) return { ok: false, lockedMin: locked };
   if (A.sameString(String(given), String(cfg.pin))) { await A.clearLimit(env, key); return { ok: true, via: 'pin' }; }
   await A.fail(env, key, 15 * 60); const after = await A.check(env, key, 5); return { ok: false, lockedMin: after || 0 };
 }
-async function log(env, kind, kid, text) { await env.DB.prepare('INSERT INTO events_log(at,kind,kid,text) VALUES(?,?,?,?)').bind(nowIso(), kind, kid || null, text).run(); }
+async function log(env, kind, kid, text) { await env.DB.prepare('INSERT INTO events_log(at,kind,kid,text,household_id) VALUES(?,?,?,?,?)').bind(nowIso(), kind, kid || null, text, env.HID).run(); }
 
 // ---------- cache ----------
 async function cached(env, key, maxAgeMs, fn, force = false) {
-  const row = await env.DB.prepare('SELECT value, fetched_at FROM cache WHERE key=?').bind(key).first();
+  const row = await env.DB.prepare('SELECT value, fetched_at FROM cache WHERE key=? AND household_id=?').bind(key, env.HID).first();
   if (row && !force && Date.now() - Date.parse(row.fetched_at) < maxAgeMs) return JSON.parse(row.value);
-  try { const v = await fn(); await env.DB.prepare('INSERT INTO cache(key,value,fetched_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, fetched_at=excluded.fetched_at').bind(key, JSON.stringify(v), nowIso()).run(); return v; }
+  try { const v = await fn(); await env.DB.prepare('INSERT INTO cache(key,value,fetched_at,household_id) VALUES(?,?,?,?) ON CONFLICT(household_id,key) DO UPDATE SET value=excluded.value, fetched_at=excluded.fetched_at').bind(key, JSON.stringify(v), nowIso(), env.HID).run(); return v; }
   catch (e) { if (row) return JSON.parse(row.value); throw e; }
 }
 
@@ -97,20 +97,20 @@ async function board(env, cfg, req, url) {
   const [evs, weather, checks, todos, claims, ledger, groceries, meals, notes, logs] = await Promise.all([
     getEvents(env, cfg, req).catch((e) => ({ events: [], status: { all: e.message }, sample: false })),
     cached(env, wxKey(cfg), 30 * 60 * 1000, () => H.fetchWeather(cfg)).catch(() => null),
-    env.DB.prepare('SELECT * FROM checks WHERE date>=? ORDER BY done_at').bind(since).all().then((r) => r.results),
-    env.DB.prepare('SELECT * FROM todos WHERE date>=? AND date<=? ORDER BY date').bind(addDaysYmd(today, -14), addDaysYmd(today, 45)).all().then((r) => r.results),
-    env.DB.prepare("SELECT * FROM quest_claims WHERE date>=? OR status='pending' ORDER BY claimed_at DESC").bind(wk).all().then((r) => r.results),
-    env.DB.prepare('SELECT kid, kind, SUM(stars) AS stars, SUM(amount) AS amount FROM ledger GROUP BY kid, kind').all().then((r) => r.results),
-    env.DB.prepare('SELECT * FROM groceries ORDER BY done, added_at').all().then((r) => r.results),
-    env.DB.prepare('SELECT * FROM meals WHERE date>=? AND date<=?').bind(addDaysYmd(today, -7), addDaysYmd(today, 21)).all().then((r) => r.results),
-    env.DB.prepare('SELECT * FROM notes WHERE expires_at IS NULL OR expires_at>? ORDER BY created_at DESC').bind(nowIso()).all().then((r) => r.results),
-    env.DB.prepare('SELECT * FROM events_log ORDER BY id DESC LIMIT 30').all().then((r) => r.results),
+    env.DB.prepare('SELECT * FROM checks WHERE date>=? AND household_id=? ORDER BY done_at').bind(since, env.HID).all().then((r) => r.results),
+    env.DB.prepare('SELECT * FROM todos WHERE date>=? AND date<=? AND household_id=? ORDER BY date').bind(addDaysYmd(today, -14), addDaysYmd(today, 45), env.HID).all().then((r) => r.results),
+    env.DB.prepare("SELECT * FROM quest_claims WHERE (date>=? OR status='pending') AND household_id=? ORDER BY claimed_at DESC").bind(wk, env.HID).all().then((r) => r.results),
+    env.DB.prepare('SELECT kid, kind, SUM(stars) AS stars, SUM(amount) AS amount FROM ledger WHERE household_id=? GROUP BY kid, kind').bind(env.HID).all().then((r) => r.results),
+    env.DB.prepare('SELECT * FROM groceries WHERE household_id=? ORDER BY done, added_at').bind(env.HID).all().then((r) => r.results),
+    env.DB.prepare('SELECT * FROM meals WHERE date>=? AND date<=? AND household_id=?').bind(addDaysYmd(today, -7), addDaysYmd(today, 21), env.HID).all().then((r) => r.results),
+    env.DB.prepare('SELECT * FROM notes WHERE (expires_at IS NULL OR expires_at>?) AND household_id=? ORDER BY created_at DESC').bind(nowIso(), env.HID).all().then((r) => r.results),
+    env.DB.prepare('SELECT * FROM events_log WHERE household_id=? ORDER BY id DESC LIMIT 30').bind(env.HID).all().then((r) => r.results),
   ]);
-  const quizRuns = await env.DB.prepare('SELECT id, date, week, kid, subject, grade, score, total, stars, missed, asked FROM quiz_runs WHERE date>=? ORDER BY id DESC').bind(addDaysYmd(today, -120)).all().then((r) => r.results).catch(() => []);
-  const rewardReqs = (await env.DB.prepare("SELECT * FROM reward_requests WHERE status='pending' OR requested_at>? ORDER BY id DESC").bind(new Date(Date.now() - 14 * 86400000).toISOString()).all()).results;
-  const photoIds = cfg.photos?.onScreensaver === false ? [] : (await env.DB.prepare('SELECT id FROM photos WHERE hidden=0 ORDER BY id DESC LIMIT 300').all()).results.map((r) => r.id);
-  const lifetimeApproved = await env.DB.prepare("SELECT kid, SUM(stars) AS s FROM quest_claims WHERE status='approved' GROUP BY kid").all().then((r) => Object.fromEntries(r.results.map((x) => [x.kid, x.s])));
-  const lifetimeChecks = await env.DB.prepare('SELECT kid, SUM(points) AS s FROM checks GROUP BY kid').all().then((r) => Object.fromEntries(r.results.map((x) => [x.kid, x.s])));
+  const quizRuns = await env.DB.prepare('SELECT id, date, week, kid, subject, grade, score, total, stars, missed, asked FROM quiz_runs WHERE date>=? AND household_id=? ORDER BY id DESC').bind(addDaysYmd(today, -120), env.HID).all().then((r) => r.results).catch(() => []);
+  const rewardReqs = (await env.DB.prepare("SELECT * FROM reward_requests WHERE (status='pending' OR requested_at>?) AND household_id=? ORDER BY id DESC").bind(new Date(Date.now() - 14 * 86400000).toISOString(), env.HID).all()).results;
+  const photoIds = cfg.photos?.onScreensaver === false ? [] : (await env.DB.prepare('SELECT id FROM photos WHERE hidden=0 AND household_id=? ORDER BY id DESC LIMIT 300').bind(env.HID).all()).results.map((r) => r.id);
+  const lifetimeApproved = await env.DB.prepare("SELECT kid, SUM(stars) AS s FROM quest_claims WHERE status='approved' AND household_id=? GROUP BY kid").bind(env.HID).all().then((r) => Object.fromEntries(r.results.map((x) => [x.kid, x.s])));
+  const lifetimeChecks = await env.DB.prepare('SELECT kid, SUM(points) AS s FROM checks WHERE household_id=? GROUP BY kid').bind(env.HID).all().then((r) => Object.fromEntries(r.results.map((x) => [x.kid, x.s])));
   const openTodos = todos.filter((t) => !t.done_at); const instToday = P.instancesForDay(today, cfg, openTodos.concat(todos.filter((t) => t.done_at && t.date === today)));
   const dayWx = weather?.days?.find((d) => d.date === today); const tip = weather ? H.weatherTip(cfg, dayWx, weather.current) : '';
   const kids = [];
@@ -133,31 +133,31 @@ async function board(env, cfg, req, url) {
 // ---------- mutations ----------
 async function doCheck(env, cfg, body, req) {
   const { kid, id, date, done } = body; if (!kid || !id || !date) return err('kid, id, date required');
-  const todos = await env.DB.prepare('SELECT * FROM todos WHERE date=?').bind(date).all().then((r) => r.results);
+  const todos = await env.DB.prepare('SELECT * FROM todos WHERE date=? AND household_id=?').bind(date, env.HID).all().then((r) => r.results);
   const inst = P.instancesForDay(date, cfg, todos).find((i) => i.id === id); if (!inst) return err('no such task today', 404);
   if (!inst.kids.includes(kid)) return err('not this kid\'s task', 403);
-  const existing = await env.DB.prepare('SELECT * FROM checks WHERE date=? AND task=?').bind(date, id).first();
+  const existing = await env.DB.prepare('SELECT * FROM checks WHERE date=? AND task=? AND household_id=?').bind(date, id, env.HID).first();
   if (done) {
     if (existing) return existing.kid === kid ? json({ ok: true, already: true }) : err('already done by ' + existing.kid, 409, { doneBy: existing.kid });
-    await env.DB.prepare('INSERT INTO checks(date,kid,task,points,kind,done_at,by) VALUES(?,?,?,?,?,?,?)').bind(date, kid, id, inst.stars, inst.kind, nowIso(), body.by || 'tap').run();
-    if (inst.todoId) await env.DB.prepare('UPDATE todos SET done_at=?, done_by=? WHERE id=?').bind(nowIso(), kid, inst.todoId).run();
+    await env.DB.prepare('INSERT INTO checks(date,kid,task,points,kind,done_at,by,household_id) VALUES(?,?,?,?,?,?,?,?)').bind(date, kid, id, inst.stars, inst.kind, nowIso(), body.by || 'tap', env.HID).run();
+    if (inst.todoId) await env.DB.prepare('UPDATE todos SET done_at=?, done_by=? WHERE id=? AND household_id=?').bind(nowIso(), kid, inst.todoId, env.HID).run();
     const kname = cfg.kids.find((k) => k.id === kid)?.name || kid; await log(env, 'check', kid, `${kname} finished ${inst.title}`);
-    const all = P.instancesForDay(date, cfg, todos).filter((i) => i.kids.includes(kid) && !i.shared); const doneIds = new Set((await env.DB.prepare('SELECT task FROM checks WHERE date=? AND kid=?').bind(date, kid).all()).results.map((r) => r.task));
+    const all = P.instancesForDay(date, cfg, todos).filter((i) => i.kids.includes(kid) && !i.shared); const doneIds = new Set((await env.DB.prepare('SELECT task FROM checks WHERE date=? AND kid=? AND household_id=?').bind(date, kid, env.HID).all()).results.map((r) => r.task));
     if (all.length && all.every((i) => doneIds.has(i.id))) await notify(env, 'done', `${kname} finished everything today 🎉`, `${all.length} tasks, ${all.reduce((s, i) => s + i.stars, 0)} stars`);
     return json({ ok: true, stars: inst.stars });
   }
   if (!existing) return json({ ok: true });
   const age = Date.now() - Date.parse(existing.done_at);
   if (age > P.num(cfg.rules.undoSeconds, 10) * 1000 && !pinOk(req)) return denyAdmin(req);
-  await env.DB.prepare('DELETE FROM checks WHERE id=?').bind(existing.id).run();
-  if (inst.todoId) await env.DB.prepare('UPDATE todos SET done_at=NULL, done_by=NULL WHERE id=?').bind(inst.todoId).run();
+  await env.DB.prepare('DELETE FROM checks WHERE id=? AND household_id=?').bind(existing.id, env.HID).run();
+  if (inst.todoId) await env.DB.prepare('UPDATE todos SET done_at=NULL, done_by=NULL WHERE id=? AND household_id=?').bind(inst.todoId, env.HID).run();
   return json({ ok: true, undone: true });
 }
 async function addGroceries(env, text, by) {
   const items = String(text).split(/,|\band\b|\n/).map((s) => s.trim()).filter(Boolean); const out = [];
   for (const it of items) {
-    const dup = await env.DB.prepare('SELECT id FROM groceries WHERE done=0 AND lower(text)=lower(?)').bind(it).first(); if (dup) { out.push(dup.id); continue; }
-    const r = await env.DB.prepare('INSERT INTO groceries(text,aisle,added_by,added_at) VALUES(?,?,?,?)').bind(it, H.aisleFor(it), by || null, nowIso()).run(); out.push(r.meta.last_row_id);
+    const dup = await env.DB.prepare('SELECT id FROM groceries WHERE done=0 AND lower(text)=lower(?) AND household_id=?').bind(it, env.HID).first(); if (dup) { out.push(dup.id); continue; }
+    const r = await env.DB.prepare('INSERT INTO groceries(text,aisle,added_by,added_at,household_id) VALUES(?,?,?,?,?)').bind(it, H.aisleFor(it), by || null, nowIso(), env.HID).run(); out.push(r.meta.last_row_id);
   }
   return out;
 }
@@ -173,23 +173,23 @@ function quizState(cfg, k, runs, wk) {
 }
 async function finishQuiz(env, cfg, body, today) {
   const k = cfg.kids.find((x) => x.id === body.kid); if (!k) return err('Unknown kid', 404); const q = cfg.quiz || {}; if (q.enabled === false) return err('Brain quests are turned off', 403);
-  const wk = P.payWeekStart(today, cfg); const done = await env.DB.prepare('SELECT count(*) AS n FROM quiz_runs WHERE kid=? AND week=?').bind(k.id, wk).first();
+  const wk = P.payWeekStart(today, cfg); const done = await env.DB.prepare('SELECT count(*) AS n FROM quiz_runs WHERE kid=? AND week=? AND household_id=?').bind(k.id, wk, env.HID).first();
   if ((done?.n || 0) >= P.num(q.perWeek, 3)) return err('No brain quests left this week. More next week!', 409);
   const n = P.num(q.questions, 5); const results = (Array.isArray(body.results) ? body.results : []).slice(0, n); if (results.length < Math.min(3, n)) return err('Finish the quiz first', 400);
   const subject = ['math', 'science', 'social', 'mix'].includes(body.subject) ? body.subject : 'mix'; const score = results.filter((r) => r.ok === true).length; const total = results.length;
   const stars = score * P.num(q.starsEach, 1) + (score === total ? P.num(q.perfectBonus, 1) : 0);
   const missed = [...new Set(results.filter((r) => !r.ok).map((r) => String(r.topic || '').slice(0, 40)).filter(Boolean))]; const asked = results.map((r) => r.id).filter((x) => typeof x === 'string').slice(0, n);
   const label = { math: 'Math', science: 'Science', social: 'Social studies', mix: 'Surprise mix' }[subject];
-  await env.DB.prepare('INSERT INTO quiz_runs(date,week,kid,subject,grade,score,total,stars,missed,asked,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)').bind(today, wk, k.id, subject, P.num(body.grade, quizGradeFor(k)), score, total, stars, JSON.stringify(missed), JSON.stringify(asked), nowIso()).run();
-  if (stars > 0) await env.DB.prepare('INSERT INTO quest_claims(date,kid,quest,title,stars,status,claimed_at,decided_at) VALUES(?,?,?,?,?,?,?,?)').bind(today, k.id, 'brain:' + subject, `🧠 Brain quest: ${label} ${score}/${total}`, stars, 'approved', nowIso(), nowIso()).run();
+  await env.DB.prepare('INSERT INTO quiz_runs(date,week,kid,subject,grade,score,total,stars,missed,asked,created_at,household_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').bind(today, wk, k.id, subject, P.num(body.grade, quizGradeFor(k)), score, total, stars, JSON.stringify(missed), JSON.stringify(asked), nowIso(), env.HID).run();
+  if (stars > 0) await env.DB.prepare('INSERT INTO quest_claims(date,kid,quest,title,stars,status,claimed_at,decided_at,household_id) VALUES(?,?,?,?,?,?,?,?,?)').bind(today, k.id, 'brain:' + subject, `🧠 Brain quest: ${label} ${score}/${total}`, stars, 'approved', nowIso(), nowIso(), env.HID).run();
   await log(env, 'quiz', k.id, `${k.name} got ${score}/${total} on a ${label.toLowerCase()} brain quest`);
   return json({ ok: true, score, total, stars });
 }
 async function claimQuest(env, cfg, kid, questId, title, stars, today) {
   const q = (cfg.quests || []).find((x) => x.id === questId); const t = q ? q.title : title; const s = q ? q.stars : P.num(stars, 1); if (!t) return err('quest not found', 404);
-  const dup = await env.DB.prepare("SELECT id FROM quest_claims WHERE date=? AND kid=? AND title=? AND status!='denied'").bind(today, kid, t).first(); if (dup) return err('already claimed today', 409);
+  const dup = await env.DB.prepare("SELECT id FROM quest_claims WHERE date=? AND kid=? AND title=? AND status!='denied' AND household_id=?").bind(today, kid, t, env.HID).first(); if (dup) return err('already claimed today', 409);
   const status = cfg.rules.questsNeedApproval ? 'pending' : 'approved';
-  await env.DB.prepare('INSERT INTO quest_claims(date,kid,quest,title,stars,status,claimed_at,decided_at) VALUES(?,?,?,?,?,?,?,?)').bind(today, kid, q?.id || null, t, s, status, nowIso(), status === 'approved' ? nowIso() : null).run();
+  await env.DB.prepare('INSERT INTO quest_claims(date,kid,quest,title,stars,status,claimed_at,decided_at,household_id) VALUES(?,?,?,?,?,?,?,?,?)').bind(today, kid, q?.id || null, t, s, status, nowIso(), status === 'approved' ? nowIso() : null, env.HID).run();
   await log(env, 'quest', kid, `${cfg.kids.find((k) => k.id === kid)?.name} claimed ${t}`);
   if (status === 'pending') await notify(env, 'quest', `${cfg.kids.find((k) => k.id === kid)?.name} claimed a quest`, `${t} · ★ ${s}. Tap to approve.`);
   return json({ ok: true, status });
@@ -198,13 +198,13 @@ async function execVoice(env, cfg, res, body, req, snapshot) {
   const today = snapshot.today; const p = res.params || {};
   switch (res.intent) {
     case 'grocery.add': await addGroceries(env, p.items, body.speaker || 'voice'); break;
-    case 'grocery.remove': await env.DB.prepare('UPDATE groceries SET done=1, done_at=? WHERE done=0 AND lower(text) LIKE ?').bind(nowIso(), '%' + p.item.toLowerCase() + '%').run(); break;
-    case 'meal.set': await env.DB.prepare('INSERT INTO meals(date,text,who,emoji) VALUES(?,?,?,?) ON CONFLICT(date) DO UPDATE SET text=excluded.text, who=excluded.who').bind(p.date, p.text, body.speaker || null, mealEmoji(p.text)).run(); break;
-    case 'note.add': await env.DB.prepare('INSERT INTO notes(text,from_who,created_at,expires_at) VALUES(?,?,?,?)').bind(p.text, body.speaker || 'voice', nowIso(), new Date(Date.now() + 3 * 86400000).toISOString()).run(); break;
-    case 'todo.add': await env.DB.prepare('INSERT INTO todos(date,kid,title,stars,created_at) VALUES(?,?,?,?,?)').bind(p.date, p.kid, p.title, 1, nowIso()).run(); break;
+    case 'grocery.remove': await env.DB.prepare('UPDATE groceries SET done=1, done_at=? WHERE done=0 AND lower(text) LIKE ? AND household_id=?').bind(nowIso(), '%' + p.item.toLowerCase() + '%', env.HID).run(); break;
+    case 'meal.set': await env.DB.prepare('INSERT INTO meals(date,text,who,emoji,household_id) VALUES(?,?,?,?,?) ON CONFLICT(household_id,date) DO UPDATE SET text=excluded.text, who=excluded.who').bind(p.date, p.text, body.speaker || null, mealEmoji(p.text), env.HID).run(); break;
+    case 'note.add': await env.DB.prepare('INSERT INTO notes(text,from_who,created_at,expires_at,household_id) VALUES(?,?,?,?,?)').bind(p.text, body.speaker || 'voice', nowIso(), new Date(Date.now() + 3 * 86400000).toISOString(), env.HID).run(); break;
+    case 'todo.add': await env.DB.prepare('INSERT INTO todos(date,kid,title,stars,created_at,household_id) VALUES(?,?,?,?,?,?)').bind(p.date, p.kid, p.title, 1, nowIso(), env.HID).run(); break;
     case 'task.check': if (p.id) { const r = await doCheck(env, cfg, { kid: p.kid, id: p.id, date: today, done: true, by: 'voice' }, req); if (r.status >= 400) res.say = 'I could not check that off.'; } break;
     case 'quest.claim': if (p.questId) await claimQuest(env, cfg, p.kid, p.questId, null, null, today); break;
-    case 'quest.approve': if (!pinOk(req)) return { ...res, needPin: true, say: 'Say or enter the PIN to approve.' }; { const c = await env.DB.prepare("SELECT * FROM quest_claims WHERE kid=? AND status='pending' ORDER BY id DESC").bind(p.kid).first(); if (c) { await env.DB.prepare("UPDATE quest_claims SET status='approved', decided_at=? WHERE id=?").bind(nowIso(), c.id).run(); res.say = `Approved ${c.title} for ${c.stars} stars.`; } else res.say = 'No quest waiting.'; } break;
+    case 'quest.approve': if (!pinOk(req)) return { ...res, needPin: true, say: 'Say or enter the PIN to approve.' }; { const c = await env.DB.prepare("SELECT * FROM quest_claims WHERE kid=? AND status='pending' AND household_id=? ORDER BY id DESC").bind(p.kid, env.HID).first(); if (c) { await env.DB.prepare("UPDATE quest_claims SET status='approved', decided_at=? WHERE id=? AND household_id=?").bind(nowIso(), c.id, env.HID).run(); res.say = `Approved ${c.title} for ${c.stars} stars.`; } else res.say = 'No quest waiting.'; } break;
     case 'quest.add': if (!pinOk(req)) return { ...res, needPin: true }; cfg.quests.push({ id: 'q' + uid(), title: p.title, emoji: '⭐', stars: p.stars, who: 'both' }); await saveConfig(env, cfg); break;
     case 'unknown': if (cfg.voice.ai && env.ANTHROPIC_API_KEY) { const ai = await aiInterpret(env, cfg, p.text, snapshot); if (ai && ai.intent !== 'unknown') return execVoice(env, cfg, ai, body, req, snapshot); } res.say = `Sorry, I didn't catch that. Try: add milk to the list, what's next, or ${cfg.kids[0]?.name || 'Sam'} made the bed.`; break;
   }
@@ -236,10 +236,10 @@ async function authRoute(env, req, path, cfg, userCount) {
   if (path === '/auth/signin' && req.method === 'POST') {
     const f = await formOf(req); const email = (f.email || '').trim().toLowerCase(); const ip = ipOf(req);
     const wait = (await A.check(env, 'login:' + email, 5)) || (await A.check(env, 'loginip:' + ip, 30)); if (wait) return A.signInPage({ msg: `Too many tries. Wait ${wait} minute${wait === 1 ? '' : 's'} and try again.`, email, name, google });
-    const u = await env.DB.prepare('SELECT * FROM users WHERE email=?').bind(email).first();
+    const u = await env.DB.prepare('SELECT * FROM users /* all-families */ WHERE email=?').bind(email).first();
     if (!u || !(await A.verifyPassword(f.password || '', u))) { await A.fail(env, 'login:' + email, 15 * 60); await A.fail(env, 'loginip:' + ip, 60 * 60); return A.signInPage({ msg: 'That email and password do not match.', email, name, google }); }
-    await A.clearLimit(env, 'login:' + email); await env.DB.prepare('UPDATE users SET last_login=? WHERE id=?').bind(nowIso(), u.id).run();
-    const kind = f.display ? 'display' : 'parent'; const token = await A.createSession(env, { userId: u.id, kind, label: (kind === 'display' ? 'Kitchen display · ' : '') + A.deviceLabel(req) });
+    await A.clearLimit(env, 'login:' + email); await env.DB.prepare('UPDATE users SET last_login=? WHERE id=? AND household_id=?').bind(nowIso(), u.id, u.household_id).run();
+    const kind = f.display ? 'display' : 'parent'; const token = await A.createSession(env, { userId: u.id, householdId: u.household_id, kind, label: (kind === 'display' ? 'Kitchen display · ' : '') + A.deviceLabel(req) });
     return redirect('/', A.sessionCookie(token, kind));
   }
   if (path === '/auth/google') {
@@ -251,46 +251,46 @@ async function authRoute(env, req, path, cfg, userCount) {
     if (!google) return redirect('/');
     const g = await A.googleFinish(env, req, origin); const fail = (m) => new Response(A.signInPage({ msg: m, name, google }).body, { status: 401, headers: { 'content-type': 'text/html; charset=utf-8', 'set-cookie': A.clearGoogleCookie() } });
     if (g.error) return fail(g.error);
-    let u = await env.DB.prepare('SELECT * FROM users WHERE email=?').bind(g.email).first();
+    let u = await env.DB.prepare('SELECT * FROM users /* all-families */ WHERE email=?').bind(g.email).first();
     if (g.ticket) {
       const t = await getSetting(env, 'setup_ticket', null); const ok = t && t.expires > Date.now() && A.sameString(await A.sha256hex(g.ticket), t.hash);
       if (!ok) return fail('That setup link expired. Start again from Parents → Sign-in and devices.');
       if (userCount) return fail('Sign-in is already on. Sign in normally.');
       const person = cfg.family.parents.find((p2) => p2.id === t.personId) || cfg.family.parents[0];
-      await env.DB.prepare('INSERT OR IGNORE INTO households(id,name,created_at) VALUES(1,?,?)').bind(cfg.family.name || 'Family', nowIso()).run();
-      if (!u) { const r = await env.DB.prepare('INSERT INTO users(email,name,person_id,created_at) VALUES(?,?,?,?)').bind(g.email, person.name, person.id, nowIso()).run(); u = { id: r.meta.last_row_id }; }
-      await env.DB.prepare("UPDATE users SET pw_hash = COALESCE(pw_hash, 'google'), last_login=? WHERE id=?").bind(nowIso(), u.id).run(); await setSetting(env, 'setup_ticket', null);
+      await env.DB.prepare('INSERT OR IGNORE INTO households(id,name,created_at) VALUES(?,?,?)').bind(env.HID, cfg.family.name || 'Family', nowIso()).run();
+      if (!u) { const r = await env.DB.prepare('INSERT INTO users(email,name,person_id,created_at,household_id) VALUES(?,?,?,?,?)').bind(g.email, person.name, person.id, nowIso(), env.HID).run(); u = { id: r.meta.last_row_id, household_id: env.HID }; }
+      await env.DB.prepare("UPDATE users SET pw_hash = COALESCE(pw_hash, 'google'), last_login=? WHERE id=? AND household_id=?").bind(nowIso(), u.id, u.household_id).run(); await setSetting(env, 'setup_ticket', null);
     } else if (!u) return fail(`${g.email} isn't on this board yet. Ask the other parent to add it in Parents → Sign-in and devices.`);
-    else await env.DB.prepare("UPDATE users SET pw_hash = COALESCE(pw_hash, 'google'), last_login=? WHERE id=?").bind(nowIso(), u.id).run();
-    const kind = g.display ? 'display' : 'parent'; const token = await A.createSession(env, { userId: u.id, kind, label: (kind === 'display' ? 'Kitchen display · ' : '') + A.deviceLabel(req) });
+    else await env.DB.prepare("UPDATE users SET pw_hash = COALESCE(pw_hash, 'google'), last_login=? WHERE id=? AND household_id=?").bind(nowIso(), u.id, u.household_id).run();
+    const kind = g.display ? 'display' : 'parent'; const token = await A.createSession(env, { userId: u.id, householdId: u.household_id, kind, label: (kind === 'display' ? 'Kitchen display · ' : '') + A.deviceLabel(req) });
     const h = new Headers({ location: g.ticket ? '/?signin=on' : '/' }); h.append('set-cookie', A.sessionCookie(token, kind)); h.append('set-cookie', A.clearGoogleCookie()); return new Response(null, { status: 303, headers: h });
   }
   if (path === '/auth/recover' && req.method === 'POST') {
     const f = await formOf(req); const email = (f.email || '').trim().toLowerCase(); const ip = ipOf(req);
     const wait = (await A.check(env, 'recover:' + ip, 5)); if (wait) return A.signInPage({ msg: `Too many tries. Wait ${wait} minutes.`, name });
-    const rec = await getSetting(env, 'recovery', null); const u = await env.DB.prepare('SELECT * FROM users WHERE email=?').bind(email).first();
+    const u = await env.DB.prepare('SELECT * FROM users /* all-families */ WHERE email=?').bind(email).first(); const rec = u ? await getSetting({ ...env, HID: u.household_id }, 'recovery', null) : null;
     const codeOk = rec && A.sameString(await A.sha256hex('rc:' + String(f.code || '').trim().toUpperCase()), rec.hash);
     if (!u || !codeOk) { await A.fail(env, 'recover:' + ip, 60 * 60); return A.signInPage({ msg: 'That email and recovery code do not match.', email, name }); }
     const bad = A.passwordProblem(f.password); if (bad) return A.signInPage({ msg: bad, email, name });
-    const h = await A.hashPassword(f.password); await env.DB.prepare('UPDATE users SET pw_hash=?, pw_salt=?, pw_iter=? WHERE id=?').bind(h.hash, h.salt, h.iter, u.id).run();
-    await env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(u.id).run(); await A.clearLimit(env, 'login:' + email);
+    const h = await A.hashPassword(f.password); await env.DB.prepare('UPDATE users SET pw_hash=?, pw_salt=?, pw_iter=? WHERE id=? AND household_id=?').bind(h.hash, h.salt, h.iter, u.id, u.household_id).run();
+    await env.DB.prepare('DELETE FROM sessions WHERE user_id=? AND household_id=?').bind(u.id, u.household_id).run(); await A.clearLimit(env, 'login:' + email);
     return A.signInPage({ ok: 'Password changed. Sign in with the new one.', email, name });
   }
   if (path === '/auth/invite') {
     const f = req.method === 'POST' ? await formOf(req) : { t: new URL(req.url).searchParams.get('t') || '' }; const t = (f.t || '').trim();
-    const inv = /^[0-9a-f]{64}$/.test(t) ? await env.DB.prepare('SELECT i.*, u.name, u.email FROM invites i JOIN users u ON u.id = i.user_id WHERE i.id=?').bind(await A.sha256hex(t)).first() : null;
+    const inv = /^[0-9a-f]{64}$/.test(t) ? await env.DB.prepare('SELECT i.*, u.name, u.email FROM invites i JOIN users u ON u.id = i.user_id AND u.household_id = i.household_id /* all-families: the secret link names its family */ WHERE i.id=?').bind(await A.sha256hex(t)).first() : null;
     if (!inv || inv.used_at || inv.expires_at < nowIso()) return A.simplePage('This link has expired', 'Ask the other parent to send a new one from Parents → Sign-in and devices.');
     if (req.method !== 'POST') return A.invitePage({ token: t, name: inv.name, email: inv.email });
     if (f.password !== f.password2) return A.invitePage({ token: t, name: inv.name, email: inv.email, msg: 'The two passwords are different.' });
     const bad = A.passwordProblem(f.password); if (bad) return A.invitePage({ token: t, name: inv.name, email: inv.email, msg: bad });
-    const h = await A.hashPassword(f.password); await env.DB.prepare('UPDATE users SET pw_hash=?, pw_salt=?, pw_iter=?, last_login=? WHERE id=?').bind(h.hash, h.salt, h.iter, nowIso(), inv.user_id).run();
-    await env.DB.prepare('UPDATE invites SET used_at=? WHERE id=?').bind(nowIso(), inv.id).run();
-    const token = await A.createSession(env, { userId: inv.user_id, kind: 'parent', label: A.deviceLabel(req) }); return redirect('/', A.sessionCookie(token, 'parent'));
+    const h = await A.hashPassword(f.password); await env.DB.prepare('UPDATE users SET pw_hash=?, pw_salt=?, pw_iter=?, last_login=? WHERE id=? AND household_id=?').bind(h.hash, h.salt, h.iter, nowIso(), inv.user_id, inv.household_id).run();
+    await env.DB.prepare('UPDATE invites SET used_at=? WHERE id=? AND household_id=?').bind(nowIso(), inv.id, inv.household_id).run();
+    const token = await A.createSession(env, { userId: inv.user_id, householdId: inv.household_id, kind: 'parent', label: A.deviceLabel(req) }); return redirect('/', A.sessionCookie(token, 'parent'));
   }
-  if (path === '/auth/signout') { const tok = cookieOf(req, 'fbs'); if (tok && /^[0-9a-f]{64}$/.test(tok)) await env.DB.prepare('DELETE FROM sessions WHERE id=?').bind(await A.sha256hex(tok)).run(); return redirect('/', A.clearCookie()); }
+  if (path === '/auth/signout') { const tok = cookieOf(req, 'fbs'); if (tok && /^[0-9a-f]{64}$/.test(tok)) await env.DB.prepare('DELETE FROM sessions /* all-families: by secret token */ WHERE id=?').bind(await A.sha256hex(tok)).run(); return redirect('/', A.clearCookie()); }
   return null;
 }
-async function newInvite(env, userId) { const token = A.randomHex(32); await env.DB.prepare('INSERT INTO invites(id,user_id,created_at,expires_at) VALUES(?,?,?,?)').bind(await A.sha256hex(token), userId, nowIso(), new Date(Date.now() + 7 * 86400000).toISOString()).run(); return token; }
+async function newInvite(env, userId) { const token = A.randomHex(32); await env.DB.prepare('INSERT INTO invites(id,user_id,created_at,expires_at,household_id) VALUES(?,?,?,?,?)').bind(await A.sha256hex(token), userId, nowIso(), new Date(Date.now() + 7 * 86400000).toISOString(), env.HID).run(); return token; }
 
 // ---------- push notifications ----------
 const KINDS = ['quest', 'reward', 'done', 'feedback', 'morning', 'payday'];
@@ -298,9 +298,9 @@ async function vapidKeys(env) { let v = await getSetting(env, 'vapid', null); if
 async function notify(env, kind, title, body, url = '/', onlyWho = null) {
   try {
     // Direct sends from the kitchen go to every phone that turned notifications on (or just the chosen person's); other kinds follow each phone's choices.
-    const subs = (await env.DB.prepare('SELECT * FROM push_subs').all()).results.filter((x) => { if (onlyWho) return (x.who || '').toLowerCase() === onlyWho.toLowerCase(); if (kind === 'send') return true; try { return JSON.parse(x.prefs || '[]').includes(kind); } catch { return false; } });
+    const subs = (await env.DB.prepare('SELECT * FROM push_subs WHERE household_id=?').bind(env.HID).all()).results.filter((x) => { if (onlyWho) return (x.who || '').toLowerCase() === onlyWho.toLowerCase(); if (kind === 'send') return true; try { return JSON.parse(x.prefs || '[]').includes(kind); } catch { return false; } });
     if (!subs.length) return 0; const v = await vapidKeys(env); const subject = (await getSetting(env, 'origin', null)) || 'https://example.invalid';
-    const work = Promise.all(subs.map(async (x) => { try { const r = await sendPush({ endpoint: x.endpoint, keys: { p256dh: x.p256dh, auth: x.auth } }, { title, body, url, tag: kind }, v, subject); if (r.gone) await env.DB.prepare('DELETE FROM push_subs WHERE id=?').bind(x.id).run(); else if (r.ok) await env.DB.prepare('UPDATE push_subs SET last_ok=? WHERE id=?').bind(nowIso(), x.id).run(); return r.ok; } catch { return false; } }));
+    const work = Promise.all(subs.map(async (x) => { try { const r = await sendPush({ endpoint: x.endpoint, keys: { p256dh: x.p256dh, auth: x.auth } }, { title, body, url, tag: kind }, v, subject); if (r.gone) await env.DB.prepare('DELETE FROM push_subs WHERE id=? AND household_id=?').bind(x.id, env.HID).run(); else if (r.ok) await env.DB.prepare('UPDATE push_subs SET last_ok=? WHERE id=? AND household_id=?').bind(nowIso(), x.id, env.HID).run(); return r.ok; } catch { return false; } }));
     const res = await Promise.race([work, new Promise((r) => setTimeout(() => r([]), 4000))]); return res.filter(Boolean).length;
   } catch { return 0; }
 }
@@ -316,8 +316,8 @@ async function payDayNotice(env, cfg, req) {
 async function startProgress(env, cfg) {
   const one = (sql, ...a) => env.DB.prepare(sql).bind(...a).first().then((r) => r?.n || 0).catch(() => 0);
   const [displays, accounts, pushes, checks, meals] = await Promise.all([
-    one("SELECT COUNT(*) AS n FROM sessions WHERE kind='display' AND expires_at > ?", nowIso()), one('SELECT COUNT(*) AS n FROM users WHERE pw_hash IS NOT NULL'),
-    one('SELECT COUNT(*) AS n FROM push_subs'), one('SELECT COUNT(*) AS n FROM checks'), one('SELECT COUNT(*) AS n FROM meals')]);
+    one("SELECT COUNT(*) AS n FROM sessions WHERE kind='display' AND expires_at > ? AND household_id=?", nowIso(), env.HID), one('SELECT COUNT(*) AS n FROM users WHERE pw_hash IS NOT NULL AND household_id=?', env.HID),
+    one('SELECT COUNT(*) AS n FROM push_subs WHERE household_id=?', env.HID), one('SELECT COUNT(*) AS n FROM checks WHERE household_id=?', env.HID), one('SELECT COUNT(*) AS n FROM meals WHERE household_id=?', env.HID)]);
   return { calendar: cfg.calendars.some((c) => c.url && c.url !== 'sample'), display: displays > 0, accounts, grownups: cfg.family.parents.length, pushes, checked: checks > 0, meal: meals > 0 };
 }
 async function morningBriefing(env, cfg, req) {
@@ -325,7 +325,7 @@ async function morningBriefing(env, cfg, req) {
   const mins = p.h * 60 + p.mi - (h * 60 + m); if (mins < 0 || mins > 30) return; if ((await getSetting(env, 'briefing', '')) === today) return; await setSetting(env, 'briefing', today);
   const evs = (await getEvents(env, cfg, req).catch(() => ({ events: [] }))).events.filter((e) => e.date === today);
   const wx = await cached(env, wxKey(cfg), 60 * 60 * 1000, () => H.fetchWeather(cfg)).catch(() => null); const d = wx?.days?.find((x) => x.date === today);
-  const meal = await env.DB.prepare('SELECT text FROM meals WHERE date=?').bind(today).first();
+  const meal = await env.DB.prepare('SELECT text FROM meals WHERE date=? AND household_id=?').bind(today, env.HID).first();
   const lines = [];
   if (d) lines.push(`${d.icon} ${d.high}°/${d.low}°, ${H.weatherTip(cfg, d, wx.current)}`);
   if (P.isSchoolDay(today, cfg)) lines.push(cfg.kids.map((k) => `${k.name} leaves ${k.leaveTime}`).join(', '));
@@ -336,11 +336,18 @@ async function morningBriefing(env, cfg, req) {
 
 // ---------- router ----------
 export default {
-  async scheduled(ev, env, ctx) { const cfg = await getConfig(env); const req = new Request('https://family-board.local/'); ctx.waitUntil(Promise.all([getEvents(env, cfg, req, true), cached(env, wxKey(cfg), 0, () => H.fetchWeather(cfg), true), morningBriefing(env, cfg, req), payDayNotice(env, cfg, req).catch(() => {})]).catch(() => {})); },
+  // Every 15 minutes: refresh calendars and weather and send the timed notices, one family at a time.
+  async scheduled(ev, env, ctx) {
+    const ids = new Set([1]); for (const r of (await env.DB.prepare('SELECT id FROM households /* all-families: the job visits each one */ ORDER BY id').all().catch(() => ({ results: [] }))).results) ids.add(r.id);
+    const req = new Request('https://family-board.local/');
+    ctx.waitUntil((async () => { for (const id of ids) { const fenv = { ...env, HID: id }; try { const cfg = await getConfig(fenv); await Promise.all([getEvents(fenv, cfg, req, true), cached(fenv, wxKey(cfg), 0, () => H.fetchWeather(cfg), true), morningBriefing(fenv, cfg, req), payDayNotice(fenv, cfg, req).catch(() => {})]); } catch {} } })());
+  },
   async fetch(req, env, ctx) {
     const url = new URL(req.url); const path = url.pathname;
-    const userCount = (await env.DB.prepare('SELECT COUNT(*) AS n FROM users WHERE pw_hash IS NOT NULL').first().catch(() => ({ n: 0 })))?.n || 0;
+    const userCount = (await env.DB.prepare('SELECT COUNT(*) AS n FROM users /* all-families: is sign-in on for this site */ WHERE pw_hash IS NOT NULL').first().catch(() => ({ n: 0 })))?.n || 0;
     const session = userCount ? await A.readSession(env, req) : null;
+    // From here on every lookup is for one family: the signed-in device's, or family 1 before sign-in exists.
+    env = { ...env, HID: session?.household_id || 1 };
     if (path.startsWith('/auth/')) { const r = await authRoute(env, req, path, await getConfig(env), userCount); if (r) return r; }
     if (path === '/api/login' && req.method === 'POST') {
       if (userCount) return redirect('/');
@@ -368,30 +375,30 @@ export default {
         const r = (cfg.rewards || []).find((x) => x.id === body.rewardId); if (!r) return err('no such reward', 404); const k = cfg.kids.find((x) => x.id === body.kid); if (!k) return err('kid', 404);
         const b = await board(env, cfg, req, url); const kk = b.kids.find((x) => x.id === k.id); const pend = kk.rewardRequests.filter((x) => x.status === 'pending').reduce((s2, x) => s2 + x.cost, 0);
         if (kk.wardrobe.balance - pend < r.cost) return err(`Need ${r.cost - (kk.wardrobe.balance - pend)} more stars`, 403);
-        await env.DB.prepare('INSERT INTO reward_requests(kid,reward,title,emoji,cost,requested_at) VALUES(?,?,?,?,?,?)').bind(k.id, r.id, r.title, r.emoji || '🎁', r.cost, nowIso()).run();
+        await env.DB.prepare('INSERT INTO reward_requests(kid,reward,title,emoji,cost,requested_at,household_id) VALUES(?,?,?,?,?,?,?)').bind(k.id, r.id, r.title, r.emoji || '🎁', r.cost, nowIso(), env.HID).run();
         await log(env, 'reward', k.id, `${k.name} asked for ${r.title}`); await notify(env, 'reward', `${k.name} wants a reward ${r.emoji || '🎁'}`, `${r.title} · ★ ${r.cost}. Tap to approve.`); return json({ ok: true });
       }
       if (path === '/api/reward/decide' && method === 'POST') {
-        if (!admin()) return denyAdmin(req); const rq = await env.DB.prepare('SELECT * FROM reward_requests WHERE id=?').bind(body.id).first(); if (!rq || rq.status !== 'pending') return err('not pending', 409);
+        if (!admin()) return denyAdmin(req); const rq = await env.DB.prepare('SELECT * FROM reward_requests WHERE id=? AND household_id=?').bind(body.id, env.HID).first(); if (!rq || rq.status !== 'pending') return err('not pending', 409);
         if (body.approve) { const b = await board(env, cfg, req, url); const kk = b.kids.find((x) => x.id === rq.kid); if (!kk || kk.wardrobe.balance < rq.cost) return err('Not enough stars any more', 409);
-          await env.DB.prepare('INSERT INTO ledger(week,kid,kind,amount,stars,note,created_at) VALUES(?,?,?,?,?,?,?)').bind(b.weekStart, rq.kid, 'reward', 0, rq.cost, rq.title, nowIso()).run(); }
-        await env.DB.prepare('UPDATE reward_requests SET status=?, decided_at=? WHERE id=?').bind(body.approve ? 'approved' : 'denied', nowIso(), rq.id).run(); return json({ ok: true });
+          await env.DB.prepare('INSERT INTO ledger(week,kid,kind,amount,stars,note,created_at,household_id) VALUES(?,?,?,?,?,?,?,?)').bind(b.weekStart, rq.kid, 'reward', 0, rq.cost, rq.title, nowIso(), env.HID).run(); }
+        await env.DB.prepare('UPDATE reward_requests SET status=?, decided_at=? WHERE id=? AND household_id=?').bind(body.approve ? 'approved' : 'denied', nowIso(), rq.id, env.HID).run(); return json({ ok: true });
       }
       if (path.startsWith('/api/photo/') && method === 'GET') {
-        const ph = await env.DB.prepare('SELECT data, mime FROM photos WHERE id=?').bind(+path.split('/')[3]).first(); if (!ph) return err('no photo', 404);
+        const ph = await env.DB.prepare('SELECT data, mime FROM photos WHERE id=? AND household_id=?').bind(+path.split('/')[3], env.HID).first(); if (!ph) return err('no photo', 404);
         const bin = Uint8Array.from(atob(ph.data), (c) => c.charCodeAt(0)); return new Response(bin, { headers: { 'content-type': ph.mime, 'cache-control': 'private, max-age=31536000, immutable' } });
       }
       if (path === '/api/photo' && method === 'POST') {
         if (!admin()) return denyAdmin(req); const data = String(body.data || '').replace(/^data:[^,]+,/, ''); if (!data || data.length > 1400000) return err('photo too large');
-        const r = await env.DB.prepare('INSERT INTO photos(data,mime,w,h,added_by,created_at) VALUES(?,?,?,?,?,?)').bind(data, body.mime || 'image/jpeg', body.w || null, body.h || null, body.by || null, nowIso()).run(); return json({ ok: true, id: r.meta.last_row_id });
+        const r = await env.DB.prepare('INSERT INTO photos(data,mime,w,h,added_by,created_at,household_id) VALUES(?,?,?,?,?,?,?)').bind(data, body.mime || 'image/jpeg', body.w || null, body.h || null, body.by || null, nowIso(), env.HID).run(); return json({ ok: true, id: r.meta.last_row_id });
       }
-      if (path.startsWith('/api/photo/') && method === 'DELETE') { if (!admin()) return denyAdmin(req); await env.DB.prepare('DELETE FROM photos WHERE id=?').bind(+path.split('/')[3]).run(); return json({ ok: true }); }
+      if (path.startsWith('/api/photo/') && method === 'DELETE') { if (!admin()) return denyAdmin(req); await env.DB.prepare('DELETE FROM photos WHERE id=? AND household_id=?').bind(+path.split('/')[3], env.HID).run(); return json({ ok: true }); }
       if (path === '/api/push/key') return json({ publicKey: (await vapidKeys(env)).publicKey });
       // The kitchen screen sends the grocery list, today's plan or a note to the grown-ups' phones.
       if (path === '/api/push/send' && method === 'POST') {
-        const wait = await A.check(env, 'send:all', 20); if (wait) return err(`That's a lot of sending. Try again in ${wait} minutes.`, 429); await A.fail(env, 'send:all', 10 * 60);
+        const wait = await A.check(env, 'send:' + env.HID, 20); if (wait) return err(`That's a lot of sending. Try again in ${wait} minutes.`, 429); await A.fail(env, 'send:' + env.HID, 10 * 60);
         const what = body.what; let title = '', text = '', link = '/#today';
-        if (what === 'groceries') { const g = (await env.DB.prepare('SELECT text FROM groceries WHERE done = 0 ORDER BY id').all()).results; if (!g.length) return err('The grocery list is empty'); title = `🛒 Grocery list (${g.length})`; text = g.map((x) => x.text).join(', '); link = '/#groceries'; }
+        if (what === 'groceries') { const g = (await env.DB.prepare('SELECT text FROM groceries WHERE done = 0 AND household_id=? ORDER BY id').bind(env.HID).all()).results; if (!g.length) return err('The grocery list is empty'); title = `🛒 Grocery list (${g.length})`; text = g.map((x) => x.text).join(', '); link = '/#groceries'; }
         else if (what === 'today') { const snap = await board(env, cfg, req, url); const evs = snap.events.filter((e) => e.date <= today && e.endDate >= today); const meal = snap.meals.find((m) => m.date === today);
           title = `📅 Today, ${evs.length} event${evs.length === 1 ? '' : 's'}`; text = [evs.slice(0, 6).map((e) => `${e.allDay ? '' : e.timeLabel + ' '}${e.title}${e.place ? ' (leave ' + e.place.leaveBy + ')' : ''}`).join(' · ') || 'Nothing on the calendar', meal ? `Dinner: ${meal.text}` : '', snap.kids.map((k) => `${k.name} ${k.today.filter((t) => t.done && !t.doneByOther).length}/${k.today.filter((t) => !t.doneByOther).length}`).join(', ')].filter(Boolean).join('\n'); }
         else if (what === 'note') { text = String(body.text || '').trim().slice(0, 300); if (!text) return err('Write a note first'); title = `💬 From the kitchen${body.from ? ', ' + String(body.from).slice(0, 30) : ''}`; }
@@ -403,12 +410,12 @@ export default {
       if (path === '/api/push/subscribe' && method === 'POST') {
         if (!admin()) return denyAdmin(req); const sub = body.sub; if (!sub?.endpoint || !sub?.keys?.p256dh || !sub?.keys?.auth) return err('bad subscription');
         const prefs = JSON.stringify((body.prefs || KINDS).filter((k) => KINDS.includes(k))); await setSetting(env, 'origin', url.origin);
-        await env.DB.prepare('INSERT INTO push_subs(endpoint,p256dh,auth,who,prefs,created_at) VALUES(?,?,?,?,?,?) ON CONFLICT(endpoint) DO UPDATE SET p256dh=excluded.p256dh, auth=excluded.auth, who=excluded.who, prefs=excluded.prefs').bind(sub.endpoint, sub.keys.p256dh, sub.keys.auth, body.who || null, prefs, nowIso()).run();
+        await env.DB.prepare('INSERT INTO push_subs(endpoint,p256dh,auth,who,prefs,created_at,household_id) VALUES(?,?,?,?,?,?,?) ON CONFLICT(endpoint) DO UPDATE SET p256dh=excluded.p256dh, auth=excluded.auth, who=excluded.who, prefs=excluded.prefs, household_id=excluded.household_id').bind(sub.endpoint, sub.keys.p256dh, sub.keys.auth, body.who || null, prefs, nowIso(), env.HID).run();
         return json({ ok: true });
       }
-      if (path === '/api/push/unsubscribe' && method === 'POST') { await env.DB.prepare('DELETE FROM push_subs WHERE endpoint=?').bind(body.endpoint || '').run(); return json({ ok: true }); }
-      if (path === '/api/push/status' && method === 'POST') { const x = await env.DB.prepare('SELECT who, prefs, last_ok FROM push_subs WHERE endpoint=?').bind(body.endpoint || '').first(); return json(x ? { ...x, prefs: JSON.parse(x.prefs) } : null); }
-      if (path === '/api/push/test' && method === 'POST') { if (!admin()) return denyAdmin(req); const all = (await env.DB.prepare('SELECT * FROM push_subs WHERE endpoint=?').bind(body.endpoint || '').all()).results; if (!all.length) return err('This device is not signed up yet', 404); const v = await vapidKeys(env); const x = all[0]; const r = await sendPush({ endpoint: x.endpoint, keys: { p256dh: x.p256dh, auth: x.auth } }, { title: cfg.family?.name || 'Family Board', body: `${cfg.family?.dog ? cfg.family.dog + ' says hi! ' : ''}Notifications work for ${x.who || 'you'}.`, url: '/' }, v, url.origin); return r.ok ? json({ ok: true }) : err('Push service said ' + r.status, 502); }
+      if (path === '/api/push/unsubscribe' && method === 'POST') { await env.DB.prepare('DELETE FROM push_subs WHERE endpoint=? AND household_id=?').bind(body.endpoint || '', env.HID).run(); return json({ ok: true }); }
+      if (path === '/api/push/status' && method === 'POST') { const x = await env.DB.prepare('SELECT who, prefs, last_ok FROM push_subs WHERE endpoint=? AND household_id=?').bind(body.endpoint || '', env.HID).first(); return json(x ? { ...x, prefs: JSON.parse(x.prefs) } : null); }
+      if (path === '/api/push/test' && method === 'POST') { if (!admin()) return denyAdmin(req); const all = (await env.DB.prepare('SELECT * FROM push_subs WHERE endpoint=? AND household_id=?').bind(body.endpoint || '', env.HID).all()).results; if (!all.length) return err('This device is not signed up yet', 404); const v = await vapidKeys(env); const x = all[0]; const r = await sendPush({ endpoint: x.endpoint, keys: { p256dh: x.p256dh, auth: x.auth } }, { title: cfg.family?.name || 'Family Board', body: `${cfg.family?.dog ? cfg.family.dog + ' says hi! ' : ''}Notifications work for ${x.who || 'you'}.`, url: '/' }, v, url.origin); return r.ok ? json({ ok: true }) : err('Push service said ' + r.status, 502); }
       if (path === '/api/tts') {
         const text = (url.searchParams.get('t') || '').slice(0, 400).trim(); const voice = (url.searchParams.get('v') || cfg.voice.cloudVoice || 'thalia').replace(/[^a-z]/g, '');
         if (!text || !env.AI) return err('no voice', 404);
@@ -426,38 +433,38 @@ export default {
         const text = String(body.text || '').trim(); if (!text) return err('say something first');
         let issueUrl = null; const m = /github\.com\/([^/]+)\/([^/#?]+)/.exec(cfg.feedbackUrl || '');
         if (m && env.GITHUB_TOKEN) { try { const r = await fetch(`https://api.github.com/repos/${m[1]}/${m[2].replace(/\.git$/, '')}/issues`, { method: 'POST', headers: { authorization: 'Bearer ' + env.GITHUB_TOKEN, 'content-type': 'application/json', 'user-agent': 'family-board', accept: 'application/vnd.github+json' }, body: JSON.stringify({ title: text.slice(0, 70) + (text.length > 70 ? '…' : ''), body: `${text}\n\n_From ${body.from || 'the board'} on page "${body.page || ''}"_`, labels: ['feedback'] }) }); if (r.ok) issueUrl = (await r.json()).html_url; } catch {} }
-        await env.DB.prepare('INSERT INTO feedback(text,from_who,page,created_at,issue_url) VALUES(?,?,?,?,?)').bind(text, body.from || null, body.page || null, nowIso(), issueUrl).run();
+        await env.DB.prepare('INSERT INTO feedback(text,from_who,page,created_at,issue_url,household_id) VALUES(?,?,?,?,?,?)').bind(text, body.from || null, body.page || null, nowIso(), issueUrl, env.HID).run();
         await log(env, 'feedback', null, `${body.from || 'Someone'}: ${text.slice(0, 80)}`); await notify(env, 'feedback', `Feedback from ${body.from || 'someone'}`, text.slice(0, 160)); return json({ ok: true, issueUrl });
       }
-      if (path === '/api/feedback' && method === 'GET') return json((await env.DB.prepare('SELECT * FROM feedback ORDER BY id DESC LIMIT 100').all()).results);
-      if (path.startsWith('/api/feedback/') && method === 'POST') { const id = +path.split('/')[3]; await env.DB.prepare('UPDATE feedback SET status=? WHERE id=?').bind(body.status || 'done', id).run(); return json({ ok: true }); }
+      if (path === '/api/feedback' && method === 'GET') return json((await env.DB.prepare('SELECT * FROM feedback WHERE household_id=? ORDER BY id DESC LIMIT 100').bind(env.HID).all()).results);
+      if (path.startsWith('/api/feedback/') && method === 'POST') { const id = +path.split('/')[3]; await env.DB.prepare('UPDATE feedback SET status=? WHERE id=? AND household_id=?').bind(body.status || 'done', id, env.HID).run(); return json({ ok: true }); }
       if (path === '/api/check' && method === 'POST') return doCheck(env, cfg, body, req);
-      if (path === '/api/todo' && method === 'POST') { if (!body.title) return err('title required'); await env.DB.prepare('INSERT INTO todos(date,kid,title,stars,created_at) VALUES(?,?,?,?,?)').bind(body.date || today, body.kid || null, body.title, P.num(body.stars, 1), nowIso()).run(); return json({ ok: true }); }
-      if (path.startsWith('/api/todo/') && method === 'DELETE') { if (!admin()) return denyAdmin(req); await env.DB.prepare('DELETE FROM todos WHERE id=?').bind(+path.split('/')[3]).run(); return json({ ok: true }); }
+      if (path === '/api/todo' && method === 'POST') { if (!body.title) return err('title required'); await env.DB.prepare('INSERT INTO todos(date,kid,title,stars,created_at,household_id) VALUES(?,?,?,?,?,?)').bind(body.date || today, body.kid || null, body.title, P.num(body.stars, 1), nowIso(), env.HID).run(); return json({ ok: true }); }
+      if (path.startsWith('/api/todo/') && method === 'DELETE') { if (!admin()) return denyAdmin(req); await env.DB.prepare('DELETE FROM todos WHERE id=? AND household_id=?').bind(+path.split('/')[3], env.HID).run(); return json({ ok: true }); }
       if (path === '/api/quest/claim' && method === 'POST') return claimQuest(env, cfg, body.kid, body.questId, body.title, body.stars, today);
       if (path === '/api/quiz/finish' && method === 'POST') return finishQuiz(env, cfg, body, today);
-      if (path === '/api/quest/decide' && method === 'POST') { if (!admin()) return denyAdmin(req); await env.DB.prepare('UPDATE quest_claims SET status=?, decided_at=? WHERE id=?').bind(body.approve ? 'approved' : 'denied', nowIso(), body.id).run(); return json({ ok: true }); }
+      if (path === '/api/quest/decide' && method === 'POST') { if (!admin()) return denyAdmin(req); await env.DB.prepare('UPDATE quest_claims SET status=?, decided_at=? WHERE id=? AND household_id=?').bind(body.approve ? 'approved' : 'denied', nowIso(), body.id, env.HID).run(); return json({ ok: true }); }
       if (path === '/api/wardrobe/look' && method === 'POST') { const ward = await getSetting(env, 'wardrobe:' + body.kid, { owned: [], look: {} }); ward.look = body.look || {}; await setSetting(env, 'wardrobe:' + body.kid, ward); return json({ ok: true }); }
       if (path === '/api/wardrobe/buy' && method === 'POST') {
         const item = cfg.wardrobe.catalog.find((i) => i.id === body.itemId); if (!item) return err('no item', 404); const ward = await getSetting(env, 'wardrobe:' + body.kid, { owned: [], look: {} });
         if (ward.owned.includes(item.id)) return json({ ok: true, already: true }); if (item.prizeOnly) return err('prize only', 403);
         const b = await board(env, cfg, req, url); const k = b.kids.find((x) => x.id === body.kid); if (!k) return err('kid', 404);
         if (item.minLevel && k.level.level < item.minLevel) return err(`Level ${item.minLevel} needed`, 403); if (k.wardrobe.balance < item.cost) return err('Not enough stars yet', 403);
-        if (item.cost > 0) await env.DB.prepare('INSERT INTO ledger(week,kid,kind,amount,stars,note,created_at) VALUES(?,?,?,?,?,?,?)').bind(b.weekStart, body.kid, 'wardrobe', 0, item.cost, item.label, nowIso()).run();
+        if (item.cost > 0) await env.DB.prepare('INSERT INTO ledger(week,kid,kind,amount,stars,note,created_at,household_id) VALUES(?,?,?,?,?,?,?,?)').bind(b.weekStart, body.kid, 'wardrobe', 0, item.cost, item.label, nowIso(), env.HID).run();
         ward.owned.push(item.id); await setSetting(env, 'wardrobe:' + body.kid, ward); return json({ ok: true });
       }
       if (path === '/api/goal' && method === 'POST') { await setSetting(env, 'goal:' + body.kid, body.goal || null); return json({ ok: true }); }
       if (path === '/api/grocery' && method === 'POST') { const ids = await addGroceries(env, body.text, body.by); return json({ ok: true, ids }); }
       if (path.startsWith('/api/grocery/') && method === 'POST') {
-        const [, , , id, act] = path.split('/'); if (id === 'clear') { await env.DB.prepare('DELETE FROM groceries WHERE done=1').run(); return json({ ok: true }); }
-        if (act === 'toggle') { await env.DB.prepare('UPDATE groceries SET done=1-done, done_at=? WHERE id=?').bind(nowIso(), +id).run(); return json({ ok: true }); }
-        if (act === 'aisle') { await env.DB.prepare('UPDATE groceries SET aisle=? WHERE id=?').bind(body.aisle, +id).run(); return json({ ok: true }); }
+        const [, , , id, act] = path.split('/'); if (id === 'clear') { await env.DB.prepare('DELETE FROM groceries WHERE done=1 AND household_id=?').bind(env.HID).run(); return json({ ok: true }); }
+        if (act === 'toggle') { await env.DB.prepare('UPDATE groceries SET done=1-done, done_at=? WHERE id=? AND household_id=?').bind(nowIso(), +id, env.HID).run(); return json({ ok: true }); }
+        if (act === 'aisle') { await env.DB.prepare('UPDATE groceries SET aisle=? WHERE id=? AND household_id=?').bind(body.aisle, +id, env.HID).run(); return json({ ok: true }); }
       }
-      if (path.startsWith('/api/grocery/') && method === 'DELETE') { await env.DB.prepare('DELETE FROM groceries WHERE id=?').bind(+path.split('/')[3]).run(); return json({ ok: true }); }
-      if (path === '/api/meal' && method === 'PUT') { if (!body.text) { await env.DB.prepare('DELETE FROM meals WHERE date=?').bind(body.date).run(); return json({ ok: true }); } await env.DB.prepare('INSERT INTO meals(date,text,who,emoji,ingredients) VALUES(?,?,?,?,?) ON CONFLICT(date) DO UPDATE SET text=excluded.text, who=excluded.who, emoji=excluded.emoji, ingredients=excluded.ingredients').bind(body.date, body.text, body.who || null, body.emoji || mealEmoji(body.text), body.ingredients || null).run(); return json({ ok: true }); }
-      if (path === '/api/meal/shop' && method === 'POST') { const m = await env.DB.prepare('SELECT * FROM meals WHERE date=?').bind(body.date).first(); if (!m?.ingredients) return err('no ingredients'); await addGroceries(env, m.ingredients, 'dinner'); return json({ ok: true }); }
-      if (path === '/api/note' && method === 'POST') { await env.DB.prepare('INSERT INTO notes(text,from_who,created_at,expires_at) VALUES(?,?,?,?)').bind(body.text, body.from || null, nowIso(), body.days ? new Date(Date.now() + body.days * 86400000).toISOString() : null).run(); return json({ ok: true }); }
-      if (path.startsWith('/api/note/') && method === 'DELETE') { await env.DB.prepare('DELETE FROM notes WHERE id=?').bind(+path.split('/')[3]).run(); return json({ ok: true }); }
+      if (path.startsWith('/api/grocery/') && method === 'DELETE') { await env.DB.prepare('DELETE FROM groceries WHERE id=? AND household_id=?').bind(+path.split('/')[3], env.HID).run(); return json({ ok: true }); }
+      if (path === '/api/meal' && method === 'PUT') { if (!body.text) { await env.DB.prepare('DELETE FROM meals WHERE date=? AND household_id=?').bind(body.date, env.HID).run(); return json({ ok: true }); } await env.DB.prepare('INSERT INTO meals(date,text,who,emoji,ingredients,household_id) VALUES(?,?,?,?,?,?) ON CONFLICT(household_id,date) DO UPDATE SET text=excluded.text, who=excluded.who, emoji=excluded.emoji, ingredients=excluded.ingredients').bind(body.date, body.text, body.who || null, body.emoji || mealEmoji(body.text), body.ingredients || null, env.HID).run(); return json({ ok: true }); }
+      if (path === '/api/meal/shop' && method === 'POST') { const m = await env.DB.prepare('SELECT * FROM meals WHERE date=? AND household_id=?').bind(body.date, env.HID).first(); if (!m?.ingredients) return err('no ingredients'); await addGroceries(env, m.ingredients, 'dinner'); return json({ ok: true }); }
+      if (path === '/api/note' && method === 'POST') { await env.DB.prepare('INSERT INTO notes(text,from_who,created_at,expires_at,household_id) VALUES(?,?,?,?,?)').bind(body.text, body.from || null, nowIso(), body.days ? new Date(Date.now() + body.days * 86400000).toISOString() : null, env.HID).run(); return json({ ok: true }); }
+      if (path.startsWith('/api/note/') && method === 'DELETE') { await env.DB.prepare('DELETE FROM notes WHERE id=? AND household_id=?').bind(+path.split('/')[3], env.HID).run(); return json({ ok: true }); }
       if (path === '/api/voice' && method === 'POST') {
         const snap = await board(env, cfg, req, url); const dayLabel = (d) => d === snap.today ? 'today' : d === addDaysYmd(snap.today, 1) ? 'tomorrow' : new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
         const ctxv = { cfg, today: snap.today, weather: snap.weather, tip: snap.tip, groceries: snap.groceries, meals: snap.meals, turnText: snap.turnText,
@@ -469,17 +476,17 @@ export default {
         if (!admin()) return denyAdmin(req); const sub = path.slice('/api/admin/'.length);
         if (sub === 'config' && method === 'GET') return json(cfg);
         if (sub === 'account' && method === 'GET') {
-          const users = (await env.DB.prepare("SELECT id, email, name, person_id, created_at, last_login, pw_hash IS NOT NULL AS active, (pw_hash IS NOT NULL AND pw_hash != 'google') AS has_password FROM users ORDER BY id").all()).results;
-          const sessions = (await env.DB.prepare('SELECT s.id, s.kind, s.label, s.created_at, s.last_seen, u.name AS user_name FROM sessions s LEFT JOIN users u ON u.id = s.user_id WHERE s.expires_at > ? ORDER BY s.last_seen DESC').bind(nowIso()).all()).results.map((x) => ({ ...x, id: x.id.slice(0, 16), current: session?.id === x.id }));
+          const users = (await env.DB.prepare("SELECT id, email, name, person_id, created_at, last_login, pw_hash IS NOT NULL AS active, (pw_hash IS NOT NULL AND pw_hash != 'google') AS has_password FROM users WHERE household_id=? ORDER BY id").bind(env.HID).all()).results;
+          const sessions = (await env.DB.prepare('SELECT s.id, s.kind, s.label, s.created_at, s.last_seen, u.name AS user_name FROM sessions s LEFT JOIN users u ON u.id = s.user_id AND u.household_id = s.household_id WHERE s.expires_at > ? AND s.household_id=? ORDER BY s.last_seen DESC').bind(nowIso(), env.HID).all()).results.map((x) => ({ ...x, id: x.id.slice(0, 16), current: session?.id === x.id }));
           return json({ enabled: !!userCount, google: A.googleOn(env), users, sessions, me: session ? { kind: session.kind, userId: session.user_id } : null, hasRecovery: !!(await getSetting(env, 'recovery', null)) });
         }
         if (sub === 'setup' && method === 'POST') {
           if (userCount) return err('Sign-in is already on', 409); const email = String(body.email || '').trim().toLowerCase(); if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return err('Enter a valid email');
           const bad = A.passwordProblem(body.password); if (bad) return err(bad); const person = cfg.family.parents.find((p2) => p2.id === body.personId) || cfg.family.parents[0];
-          const h = await A.hashPassword(body.password); await env.DB.prepare('INSERT OR IGNORE INTO households(id,name,created_at) VALUES(1,?,?)').bind(cfg.family.name || 'Family', nowIso()).run();
-          const r = await env.DB.prepare('INSERT INTO users(email,name,person_id,pw_hash,pw_salt,pw_iter,created_at,last_login) VALUES(?,?,?,?,?,?,?,?)').bind(email, person.name, person.id, h.hash, h.salt, h.iter, nowIso(), nowIso()).run();
+          const h = await A.hashPassword(body.password); await env.DB.prepare('INSERT OR IGNORE INTO households(id,name,created_at) VALUES(?,?,?)').bind(env.HID, cfg.family.name || 'Family', nowIso()).run();
+          const r = await env.DB.prepare('INSERT INTO users(email,name,person_id,pw_hash,pw_salt,pw_iter,created_at,last_login,household_id) VALUES(?,?,?,?,?,?,?,?,?)').bind(email, person.name, person.id, h.hash, h.salt, h.iter, nowIso(), nowIso(), env.HID).run();
           const code = A.recoveryCode(); await setSetting(env, 'recovery', { hash: await A.sha256hex('rc:' + code), created_at: nowIso() });
-          const kind = body.display ? 'display' : 'parent'; const token = await A.createSession(env, { userId: r.meta.last_row_id, kind, label: (kind === 'display' ? 'Kitchen display · ' : '') + A.deviceLabel(req) });
+          const kind = body.display ? 'display' : 'parent'; const token = await A.createSession(env, { userId: r.meta.last_row_id, householdId: env.HID, kind, label: (kind === 'display' ? 'Kitchen display · ' : '') + A.deviceLabel(req) });
           return new Response(JSON.stringify({ ok: true, recoveryCode: code }), { headers: { 'content-type': 'application/json', 'set-cookie': A.sessionCookie(token, kind) } });
         }
         if (sub === 'setup-google' && method === 'POST') {
@@ -489,26 +496,27 @@ export default {
         }
         if (sub === 'invite' && method === 'POST') {
           if (!userCount) return err('Turn on sign-in first'); const email = String(body.email || '').trim().toLowerCase(); if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return err('Enter a valid email');
-          const person = cfg.family.parents.find((p2) => p2.id === body.personId); let u = await env.DB.prepare('SELECT * FROM users WHERE email=?').bind(email).first();
-          if (!u) { const r = await env.DB.prepare('INSERT INTO users(email,name,person_id,created_at) VALUES(?,?,?,?)').bind(email, person?.name || body.name || email.split('@')[0], person?.id || null, nowIso()).run(); u = { id: r.meta.last_row_id }; }
+          const person = cfg.family.parents.find((p2) => p2.id === body.personId); let u = await env.DB.prepare('SELECT * FROM users /* all-families: an email belongs to one family */ WHERE email=?').bind(email).first();
+          if (u && u.household_id !== env.HID) return err('That email is already used by another family board');
+          if (!u) { const r = await env.DB.prepare('INSERT INTO users(email,name,person_id,created_at,household_id) VALUES(?,?,?,?,?)').bind(email, person?.name || body.name || email.split('@')[0], person?.id || null, nowIso(), env.HID).run(); u = { id: r.meta.last_row_id }; }
           const token = await newInvite(env, u.id); return json({ ok: true, link: `${url.origin}/auth/invite?t=${token}` });
         }
-        if (sub === 'reset-user' && method === 'POST') { const u = await env.DB.prepare('SELECT id FROM users WHERE id=?').bind(+body.userId).first(); if (!u) return err('no such account', 404); await env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(u.id).run(); const token = await newInvite(env, u.id); return json({ ok: true, link: `${url.origin}/auth/invite?t=${token}` }); }
-        if (sub === 'remove-user' && method === 'POST') { if (+body.userId === session?.user_id) return err('You cannot remove yourself'); const left = (await env.DB.prepare('SELECT COUNT(*) AS n FROM users WHERE pw_hash IS NOT NULL AND id != ?').bind(+body.userId).first()).n; if (!left) return err('Keep at least one parent account'); await env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(+body.userId).run(); await env.DB.prepare('DELETE FROM users WHERE id=?').bind(+body.userId).run(); return json({ ok: true }); }
-        if (sub === 'revoke' && method === 'POST') { await env.DB.prepare('DELETE FROM sessions WHERE substr(id,1,16)=?').bind(String(body.id || '')).run(); return json({ ok: true }); }
-        if (sub === 'revoke-others' && method === 'POST') { await env.DB.prepare('DELETE FROM sessions WHERE id != ?').bind(session?.id || '').run(); return json({ ok: true }); }
-        if (sub === 'device-kind' && method === 'POST') { if (!session) return err('not signed in'); const kind = body.kind === 'display' ? 'display' : 'parent'; await env.DB.prepare('UPDATE sessions SET kind=?, label=? WHERE id=?').bind(kind, (kind === 'display' ? 'Kitchen display · ' : '') + A.deviceLabel(req), session.id).run(); return json({ ok: true }); }
-        if (sub === 'password' && method === 'POST') { if (!session?.user_id) return err('Sign in on this device first'); const u = await env.DB.prepare('SELECT * FROM users WHERE id=?').bind(session.user_id).first(); if (!(await A.verifyPassword(String(body.old || ''), u))) return err('Your current password is not right'); const bad = A.passwordProblem(body.password); if (bad) return err(bad); const h = await A.hashPassword(body.password); await env.DB.prepare('UPDATE users SET pw_hash=?, pw_salt=?, pw_iter=? WHERE id=?').bind(h.hash, h.salt, h.iter, u.id).run(); await env.DB.prepare('DELETE FROM sessions WHERE user_id=? AND id != ?').bind(u.id, session.id).run(); return json({ ok: true }); }
+        if (sub === 'reset-user' && method === 'POST') { const u = await env.DB.prepare('SELECT id FROM users WHERE id=? AND household_id=?').bind(+body.userId, env.HID).first(); if (!u) return err('no such account', 404); await env.DB.prepare('DELETE FROM sessions WHERE user_id=? AND household_id=?').bind(u.id, env.HID).run(); const token = await newInvite(env, u.id); return json({ ok: true, link: `${url.origin}/auth/invite?t=${token}` }); }
+        if (sub === 'remove-user' && method === 'POST') { if (+body.userId === session?.user_id) return err('You cannot remove yourself'); const left = (await env.DB.prepare('SELECT COUNT(*) AS n FROM users WHERE pw_hash IS NOT NULL AND id != ? AND household_id=?').bind(+body.userId, env.HID).first()).n; if (!left) return err('Keep at least one parent account'); await env.DB.prepare('DELETE FROM sessions WHERE user_id=? AND household_id=?').bind(+body.userId, env.HID).run(); await env.DB.prepare('DELETE FROM users WHERE id=? AND household_id=?').bind(+body.userId, env.HID).run(); return json({ ok: true }); }
+        if (sub === 'revoke' && method === 'POST') { await env.DB.prepare('DELETE FROM sessions WHERE substr(id,1,16)=? AND household_id=?').bind(String(body.id || ''), env.HID).run(); return json({ ok: true }); }
+        if (sub === 'revoke-others' && method === 'POST') { await env.DB.prepare('DELETE FROM sessions WHERE id != ? AND household_id=?').bind(session?.id || '', env.HID).run(); return json({ ok: true }); }
+        if (sub === 'device-kind' && method === 'POST') { if (!session) return err('not signed in'); const kind = body.kind === 'display' ? 'display' : 'parent'; await env.DB.prepare('UPDATE sessions SET kind=?, label=? WHERE id=? AND household_id=?').bind(kind, (kind === 'display' ? 'Kitchen display · ' : '') + A.deviceLabel(req), session.id, env.HID).run(); return json({ ok: true }); }
+        if (sub === 'password' && method === 'POST') { if (!session?.user_id) return err('Sign in on this device first'); const u = await env.DB.prepare('SELECT * FROM users WHERE id=? AND household_id=?').bind(session.user_id, env.HID).first(); if (!(await A.verifyPassword(String(body.old || ''), u))) return err('Your current password is not right'); const bad = A.passwordProblem(body.password); if (bad) return err(bad); const h = await A.hashPassword(body.password); await env.DB.prepare('UPDATE users SET pw_hash=?, pw_salt=?, pw_iter=? WHERE id=? AND household_id=?').bind(h.hash, h.salt, h.iter, u.id, env.HID).run(); await env.DB.prepare('DELETE FROM sessions WHERE user_id=? AND id != ? AND household_id=?').bind(u.id, session.id, env.HID).run(); return json({ ok: true }); }
         if (sub === 'recovery' && method === 'POST') { const code = A.recoveryCode(); await setSetting(env, 'recovery', { hash: await A.sha256hex('rc:' + code), created_at: nowIso() }); return json({ ok: true, recoveryCode: code }); }
         if (sub === 'gate' && method === 'GET') return json(await getGate(env));
         if (sub === 'gate' && method === 'POST') { const code = String(body.code || '').trim(); if (!/^\d{4,8}$/.test(code)) return err('4 to 8 digits'); await setSetting(env, 'gate', { code, hash: await sha('fb:' + code) }); return json({ ok: true }); }
         if (sub === 'config' && method === 'PUT') { const next = { ...cfg, ...body.config, pin: body.config?.pin || cfg.pin }; await saveConfig(env, next); return json({ ok: true }); }
         if (sub === 'refresh') { const r = await getEvents(env, cfg, req, true); await cached(env, wxKey(cfg), 0, () => H.fetchWeather(cfg), true).catch(() => {}); return json({ ok: true, status: r.status }); }
-        if (sub === 'payout') { await env.DB.prepare('INSERT INTO ledger(week,kid,kind,amount,stars,note,created_at) VALUES(?,?,?,?,?,?,?)').bind(body.week, body.kid, 'payout', P.num(body.amount, 0), 0, body.note || null, nowIso()).run(); if (body.jar) await env.DB.prepare('INSERT INTO ledger(week,kid,kind,amount,stars,note,created_at) VALUES(?,?,?,?,?,?,?)').bind(body.week, body.kid, 'jar', P.num(body.jar, 0), 0, 'to savings jar', nowIso()).run(); return json({ ok: true }); }
-        if (sub === 'grant') { await env.DB.prepare('INSERT INTO ledger(week,kid,kind,amount,stars,note,created_at) VALUES(?,?,?,?,?,?,?)').bind(today, body.kid, 'grant', 0, P.num(body.stars, 0), body.note || null, nowIso()).run(); if (body.itemId) { const w = await getSetting(env, 'wardrobe:' + body.kid, { owned: [], look: {} }); if (!w.owned.includes(body.itemId)) w.owned.push(body.itemId); await setSetting(env, 'wardrobe:' + body.kid, w); } return json({ ok: true }); }
-        if (sub === 'history') { const l = await env.DB.prepare('SELECT * FROM ledger ORDER BY created_at DESC LIMIT 200').all(); const c = await env.DB.prepare("SELECT date, kid, SUM(points) AS stars, COUNT(*) AS n FROM checks WHERE date>=? GROUP BY date, kid ORDER BY date DESC").bind(addDaysYmd(today, -84)).all(); return json({ ledger: l.results, days: c.results }); }
-        if (sub === 'log') return json((await env.DB.prepare('SELECT * FROM events_log ORDER BY id DESC LIMIT 200').all()).results);
-        if (sub === 'uncheck') { await env.DB.prepare('DELETE FROM checks WHERE date=? AND task=?').bind(body.date, body.id).run(); return json({ ok: true }); }
+        if (sub === 'payout') { await env.DB.prepare('INSERT INTO ledger(week,kid,kind,amount,stars,note,created_at,household_id) VALUES(?,?,?,?,?,?,?,?)').bind(body.week, body.kid, 'payout', P.num(body.amount, 0), 0, body.note || null, nowIso(), env.HID).run(); if (body.jar) await env.DB.prepare('INSERT INTO ledger(week,kid,kind,amount,stars,note,created_at,household_id) VALUES(?,?,?,?,?,?,?,?)').bind(body.week, body.kid, 'jar', P.num(body.jar, 0), 0, 'to savings jar', nowIso(), env.HID).run(); return json({ ok: true }); }
+        if (sub === 'grant') { await env.DB.prepare('INSERT INTO ledger(week,kid,kind,amount,stars,note,created_at,household_id) VALUES(?,?,?,?,?,?,?,?)').bind(today, body.kid, 'grant', 0, P.num(body.stars, 0), body.note || null, nowIso(), env.HID).run(); if (body.itemId) { const w = await getSetting(env, 'wardrobe:' + body.kid, { owned: [], look: {} }); if (!w.owned.includes(body.itemId)) w.owned.push(body.itemId); await setSetting(env, 'wardrobe:' + body.kid, w); } return json({ ok: true }); }
+        if (sub === 'history') { const l = await env.DB.prepare('SELECT * FROM ledger WHERE household_id=? ORDER BY created_at DESC LIMIT 200').bind(env.HID).all(); const c = await env.DB.prepare("SELECT date, kid, SUM(points) AS stars, COUNT(*) AS n FROM checks WHERE date>=? AND household_id=? GROUP BY date, kid ORDER BY date DESC").bind(addDaysYmd(today, -84), env.HID).all(); return json({ ledger: l.results, days: c.results }); }
+        if (sub === 'log') return json((await env.DB.prepare('SELECT * FROM events_log WHERE household_id=? ORDER BY id DESC LIMIT 200').bind(env.HID).all()).results);
+        if (sub === 'uncheck') { await env.DB.prepare('DELETE FROM checks WHERE date=? AND task=? AND household_id=?').bind(body.date, body.id, env.HID).run(); return json({ ok: true }); }
         if (sub === 'test-calendar') { try { const text = await loadIcs(env, body.url, req); const n = parseICS(text, zone).length; return json({ ok: true, events: n }); } catch (e) { return err(e.message); } }
       }
       return err('not found', 404);

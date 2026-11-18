@@ -16,25 +16,25 @@ export function passwordProblem(pw) { if (typeof pw !== 'string' || pw.length < 
 export const recoveryCode = () => { const a = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; const r = crypto.getRandomValues(new Uint8Array(16)); let s = ''; for (let i = 0; i < 16; i++) { s += a[r[i] % a.length]; if (i % 4 === 3 && i < 15) s += '-'; } return s; };
 
 // Rate limits: at most `max` failures per window for a key.
-export async function check(env, key, max) { const now = Math.floor(Date.now() / 1000); const r = await env.DB.prepare('SELECT n, reset_at FROM ratelimit WHERE key=?').bind(key).first(); if (r && r.reset_at > now && r.n >= max) return Math.max(1, Math.ceil((r.reset_at - now) / 60)); return 0; }
-export async function fail(env, key, windowSec) { const now = Math.floor(Date.now() / 1000); await env.DB.prepare('INSERT INTO ratelimit(key,n,reset_at) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET n = CASE WHEN reset_at <= ? THEN 1 ELSE n + 1 END, reset_at = CASE WHEN reset_at <= ? THEN excluded.reset_at ELSE reset_at END').bind(key, now + windowSec, now, now).run(); }
-export async function clearLimit(env, key) { await env.DB.prepare('DELETE FROM ratelimit WHERE key=?').bind(key).run(); }
+export async function check(env, key, max) { const now = Math.floor(Date.now() / 1000); const r = await env.DB.prepare('SELECT n, reset_at FROM ratelimit /* all-families: keys name their family when it matters */ WHERE key=?').bind(key).first(); if (r && r.reset_at > now && r.n >= max) return Math.max(1, Math.ceil((r.reset_at - now) / 60)); return 0; }
+export async function fail(env, key, windowSec) { const now = Math.floor(Date.now() / 1000); await env.DB.prepare('INSERT INTO ratelimit /* all-families */ (key,n,reset_at) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET n = CASE WHEN reset_at <= ? THEN 1 ELSE n + 1 END, reset_at = CASE WHEN reset_at <= ? THEN excluded.reset_at ELSE reset_at END').bind(key, now + windowSec, now, now).run(); }
+export async function clearLimit(env, key) { await env.DB.prepare('DELETE FROM ratelimit /* all-families */ WHERE key=?').bind(key).run(); }
 
 // Sessions
 export const TTL = { parent: 120 * 86400, display: 400 * 86400 };
 export const cookieOf = (req, name) => { const m = new RegExp('(?:^|;\\s*)' + name + '=([^;]+)').exec(req.headers.get('cookie') || ''); return m ? m[1] : null; };
 export function sessionCookie(token, kind) { return `fbs=${token}; Path=/; Max-Age=${TTL[kind] || TTL.parent}; HttpOnly; SameSite=Lax; Secure`; }
 export const clearCookie = () => 'fbs=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax; Secure';
-export async function createSession(env, { userId, kind, label }) {
+export async function createSession(env, { userId, householdId, kind, label }) {
   const token = randomHex(32); const id = await sha256hex(token); const now = new Date(); const exp = new Date(now.getTime() + (TTL[kind] || TTL.parent) * 1000);
-  await env.DB.prepare('INSERT INTO sessions(id,user_id,kind,label,created_at,last_seen,expires_at) VALUES(?,?,?,?,?,?,?)').bind(id, userId || null, kind, label || null, now.toISOString(), now.toISOString(), exp.toISOString()).run();
+  await env.DB.prepare('INSERT INTO sessions(id,user_id,kind,label,created_at,last_seen,expires_at,household_id) VALUES(?,?,?,?,?,?,?,?)').bind(id, userId || null, kind, label || null, now.toISOString(), now.toISOString(), exp.toISOString(), householdId || env.HID || 1).run();
   return token;
 }
 export async function readSession(env, req) {
   const token = cookieOf(req, 'fbs'); if (!token || !/^[0-9a-f]{64}$/.test(token)) return null; const id = await sha256hex(token);
-  const s = await env.DB.prepare('SELECT s.*, u.name AS user_name, u.email AS user_email, u.person_id FROM sessions s LEFT JOIN users u ON u.id = s.user_id WHERE s.id=?').bind(id).first();
+  const s = await env.DB.prepare('SELECT s.*, u.name AS user_name, u.email AS user_email, u.person_id FROM sessions s LEFT JOIN users u ON u.id = s.user_id AND u.household_id = s.household_id /* all-families: found by secret token */ WHERE s.id=?').bind(id).first();
   if (!s || s.expires_at < new Date().toISOString()) return null;
-  if (Date.now() - Date.parse(s.last_seen) > 10 * 60 * 1000) { const exp = new Date(Date.now() + (TTL[s.kind] || TTL.parent) * 1000).toISOString(); await env.DB.prepare('UPDATE sessions SET last_seen=?, expires_at=? WHERE id=?').bind(new Date().toISOString(), exp, id).run(); }
+  if (Date.now() - Date.parse(s.last_seen) > 10 * 60 * 1000) { const exp = new Date(Date.now() + (TTL[s.kind] || TTL.parent) * 1000).toISOString(); await env.DB.prepare('UPDATE sessions SET last_seen=?, expires_at=? WHERE id=? /* all-families: by secret token */').bind(new Date().toISOString(), exp, id).run(); }
   return s;
 }
 export function deviceLabel(req) { const ua = req.headers.get('user-agent') || ''; const dev = /iPad/.test(ua) ? 'iPad' : /iPhone/.test(ua) ? 'iPhone' : /Android/.test(ua) ? (/Mobile/.test(ua) ? 'Android phone' : 'Android tablet') : /Macintosh/.test(ua) ? 'Mac or iPad' : /Windows/.test(ua) ? 'Windows PC' : 'Device'; const br = /CriOS|Chrome/.test(ua) ? 'Chrome' : /Safari/.test(ua) ? 'Safari' : /Firefox/.test(ua) ? 'Firefox' : ''; return br ? `${dev}, ${br}` : dev; }
