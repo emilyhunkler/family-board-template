@@ -349,7 +349,8 @@ table.t{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}table.
 .shb.wa{background:#25d366;color:#fff}
 .shprev{margin-top:14px;background:#f7faf8;border-radius:14px;padding:12px 14px;font-family:var(--body);font-weight:700;font-size:14px;white-space:pre-wrap;max-height:220px;overflow:auto;color:#3b4a66}
 /* Grown-ups' Today page (phones) */
-.ptoday{display:flex;flex-direction:column;gap:12px;max-width:720px;margin:0 auto}
+.ptoday{display:flex;flex-direction:column;gap:12px;padding-left:max(14px,calc((100% - 720px) / 2));padding-right:max(14px,calc((100% - 720px) / 2))}
+.page{min-width:100%;max-width:100%}
 .ptcard{padding:14px 16px;display:flex;flex-direction:column;gap:8px}
 .pth{display:flex;align-items:center;gap:8px;font-family:var(--head);font-weight:800;font-size:19px;color:var(--navy)}.pth span{color:var(--muted);font-size:14px;font-family:var(--body)}.pth .pill{margin-left:auto}
 .pth.sub{font-size:15px;margin-top:6px;color:#3b4a66}

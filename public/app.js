@@ -508,9 +508,14 @@ function App() {
   const parentView = !!b && (b.me?.kind === 'parent' || (b.auth?.local && (() => { try { return localStorage.getItem('fb-view') === 'parent'; } catch { return false; } })()));
   const pageList = useMemo(() => b ? (parentView ? ['today', 'groceries', 'week', ...b.kids.map((k) => k.id), 'wardrobe'] : ['week', 'home', ...b.kids.map((k) => k.id), 'wardrobe', 'groceries']) : PAGES, [b, parentView]);
   const homePage = parentView ? 'today' : 'home'; const [send, setSend] = useState(false);
-  const setPage = (p, kid) => { if (kid) setWardKid(kid); setPageState(p); const i = pageList.indexOf(p); const el = pagesRef.current; if (el && i >= 0) el.scrollTo({ left: i * el.clientWidth, behavior: 'smooth' }); };
-  const onScroll = () => { const el = pagesRef.current; if (!el) return; const i = Math.round(el.scrollLeft / el.clientWidth); const p = pageList[i]; if (p && p !== page) setPageState(p); };
-  useEffect(() => { const el = pagesRef.current; if (el) { const i = pageList.indexOf(page); if (i >= 0) el.scrollTo({ left: i * el.clientWidth }); } }, [b && pageList.length]);
+  // Pages are located by where each one actually sits, so the tab bar always matches the page on screen.
+  const pageEl = (i) => pagesRef.current?.children[i]; const goingTo = useRef(null);
+  const setPage = (p, kid) => { if (kid) setWardKid(kid); setPageState(p); const i = pageList.indexOf(p); const el = pagesRef.current; const t = pageEl(i); if (el && t) { goingTo.current = p; clearTimeout(goingTo.t); goingTo.t = setTimeout(() => { goingTo.current = null; }, 1500); el.scrollTo({ left: t.offsetLeft, behavior: 'smooth' }); } };
+  const onScroll = () => { const el = pagesRef.current; if (!el) return; let best = 0, gap = Infinity; [...el.children].forEach((c, i) => { const d = Math.abs(c.offsetLeft - el.scrollLeft); if (d < gap) { gap = d; best = i; } });
+    const p = pageList[best]; if (goingTo.current) { if (p === goingTo.current && gap < 2) goingTo.current = null; return; } if (p && p !== page) setPageState(p); };
+  // A resized window keeps showing the same page.
+  useEffect(() => { const fix = () => { const el = pagesRef.current; const t = pageEl(pageList.indexOf(page)); if (el && t) { el.style.scrollBehavior = 'auto'; el.scrollLeft = t.offsetLeft; el.style.scrollBehavior = ''; } }; addEventListener('resize', fix); return () => removeEventListener('resize', fix); }, [page, pageList]);
+  useEffect(() => { const el = pagesRef.current; const t = pageEl(pageList.indexOf(page)); if (el && t) el.scrollTo({ left: t.offsetLeft }); }, [b && pageList.length]);
   // First load on a grown-up's phone opens their page; links like /#groceries (from notifications) open that page.
   const firstRef = useRef(true);
   useEffect(() => { if (!b) return; const fromHash = () => { const h = decodeURIComponent(location.hash.slice(1)); if (h && pageList.includes(h)) { setTimeout(() => setPage(h), 30); return true; } return false; };
