@@ -378,10 +378,40 @@ export async function enablePush(who) {
   const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
   await api('/api/push/subscribe', { sub: sub.toJSON(), who }); try { localStorage.setItem('fb-who', who); } catch {}
 }
-function PushCard({ b }) {
-  const [st, setSt] = useState('checking'); const [msg, setMsg] = useState('');
-  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent); const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+// 'checking' | 'on' | 'off' | 'unsupported' for this phone's notifications
+function usePushState() {
+  const [st, setSt] = useState('checking');
   useEffect(() => { (async () => { try { if (!('serviceWorker' in navigator) || !('PushManager' in window)) return setSt('unsupported'); const reg = await navigator.serviceWorker.getRegistration(); const sub = reg && await reg.pushManager.getSubscription(); if (!sub) return setSt('off'); const info = await api('/api/push/status', { endpoint: sub.endpoint }).catch(() => null); setSt(info ? 'on' : 'off'); } catch { setSt('off'); } })(); }, []);
+  return [st, setSt];
+}
+const startHidden = () => { try { return localStorage.getItem('fb-start-hidden') === '1'; } catch { return false; } };
+const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || !!navigator.standalone;
+const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+// The first-week checklist on a grown-up's phone. Each step ticks itself off once it's done.
+function GettingStarted({ b, openParents, planDinner, onHide }) {
+  const st = b.start; const [push, setPush] = usePushState(); const [msg, setMsg] = useState(''); const [hidden, setHidden] = useState(() => { try { return localStorage.getItem('fb-start-hidden') === '1'; } catch { return false; } });
+  if (!st || hidden) return null;
+  const others = b.config.family.parents.filter((p) => p.id !== b.me?.personId).map((p) => p.name); const home = isStandalone(); const ios = isIOS();
+  const copy = async () => { try { await navigator.clipboard.writeText(location.origin); toast('Link copied'); } catch { toast(location.origin); } };
+  const steps = [
+    { done: st.calendar, t: 'Link your family calendar', how: 'Events, leave-by times and everyone’s colors come from it.', act: html`<button class="pill sm" onClick=${() => openParents('calendar')}>Link it</button>` },
+    { done: st.display, t: 'Set up the shared family screen', how: html`On the kitchen tablet, open <b>${location.host}</b>, sign in, and choose “The shared family screen”.`, act: html`<button class="pill sm lite" onClick=${copy}>Copy link</button>` },
+    { done: home, t: 'Add the board to this phone’s home screen', how: ios ? 'In Safari, tap Share, then Add to Home Screen. Then open it from the new icon.' : 'In your browser menu, tap Add to Home screen or Install app.' },
+    { done: push === 'on', t: 'Turn on notifications on this phone', how: ios && !home ? 'Do the home screen step first, then open the board from its icon.' : 'For the grocery list, notes from the kitchen, approvals and pay day.', act: ios && !home ? null : html`<button class="pill sm" onClick=${async () => { setMsg(''); try { await enablePush(b.me?.name || ''); setPush('on'); chime('win'); } catch (e) { setMsg(e.message); } }}>Turn on</button>` },
+    ...(st.grownups > 1 ? [{ done: st.accounts >= st.grownups, t: `Invite ${andList(others)}`, how: 'So everyone can approve, plan dinners and get the grocery list.', act: html`<button class="pill sm" onClick=${() => openParents('account')}>Invite</button>` }] : []),
+    { done: st.checked, t: 'Kids tick off their first chore', how: 'On the shared screen, they tap their name, then a chore.' },
+    { done: st.meal, t: 'Plan a dinner', how: 'It shows on the kitchen screen and in the morning summary.', act: html`<button class="pill sm" onClick=${planDinner}>Plan one</button>` },
+  ];
+  const n = steps.filter((x) => x.done).length; if (n === steps.length) return null;
+  const hide = () => { try { localStorage.setItem('fb-start-hidden', '1'); } catch {} setHidden(true); onHide && onHide(); };
+  return html`<div class="card ptcard gs"><div class="pth">🚀 Getting started <span>${n} of ${steps.length}</span><button class="gshide" onClick=${hide}>Hide</button></div>
+    <div class="ptbar"><i style=${{ width: Math.round((100 * n) / steps.length) + '%', background: 'var(--leaf)' }}></i></div>
+    ${steps.map((x) => html`<div class=${'gsrow' + (x.done ? ' done' : '')}><span class="gsck">${x.done ? '✓' : ''}</span><div class="gst"><b>${x.t}</b>${x.done ? '' : html`<small>${x.how}</small>`}</div>${x.done ? '' : x.act || ''}</div>`)}
+    ${msg ? html`<p class="pterr">${msg}</p>` : ''}</div>`;
+}
+function PushCard({ b }) {
+  const [st, setSt] = usePushState(); const [msg, setMsg] = useState('');
+  const ios = isIOS(); const standalone = isStandalone();
   if (st === 'on' || st === 'checking') return null;
   const who = b.me?.name || b.config.family.parents[0]?.name || '';
   return html`<div class="card ptcard ptpush"><div class="pth">🔔 Get things from the kitchen</div>
@@ -390,7 +420,8 @@ function PushCard({ b }) {
       : html`<p>The kitchen screen can send you the grocery list or a note, and you'll hear when a quest needs approving.</p><button class="pill" onClick=${async () => { setMsg(''); try { await enablePush(who); setSt('on'); chime('win'); toast('Notifications on'); } catch (e) { setMsg(e.message); } }}>Turn on notifications</button>${msg ? html`<p class="pterr">${msg}</p>` : ''}`}</div>`;
 }
 // The grown-ups' home screen on their phones: what needs them, how the kids are doing, groceries, and today.
-function ParentToday({ b, refresh, setPage, openEv, withPin }) {
+function ParentToday({ b, refresh, setPage, openEv, withPin, openParents }) {
+  const [, setHidTick] = useState(0);
   const now = new Date(); const [add, setAdd] = useState(''); const [sharing, setSharing] = useState(false); const [quick, setQuick] = useState(null); const [mealDay, setMealDay] = useState(null);
   const kn = (id) => b.kids.find((k) => k.id === id); const claims = b.claims.filter((c) => c.status === 'pending'); const rq = (b.rewardRequests || []).filter((r) => r.status === 'pending');
   const decide = (path, id, ok) => withPin(async (pin) => { try { await api(path, { id, approve: ok }, pin); chime(ok ? 'win' : 'bad'); refresh(); } catch (e) { toast(e.message); } });
@@ -399,7 +430,8 @@ function ParentToday({ b, refresh, setPage, openEv, withPin }) {
   const meal = (d) => b.meals.find((m) => m.date === d);
   const evRow = (e) => { const past = !e.allDay && new Date(e.end) < now; return html`<button class=${'ptev' + (past ? ' past' : '')} onClick=${() => openEv(e)}><i style=${{ background: e.color }}></i><b>${e.allDay ? 'all day' : e.timeLabel}</b><span>${e.emoji} ${e.title}${e.place && !past ? html`<small>leave by ${e.place.leaveBy}</small>` : ''}</span></button>`; };
   return html`<div class="page ptoday">
-    <${PushCard} b=${b} />
+    <${GettingStarted} b=${b} openParents=${openParents} planDinner=${() => setMealDay(b.today)} onHide=${() => setHidTick((n) => n + 1)} />
+    ${b.start && !startHidden() ? '' : html`<${PushCard} b=${b} />`}
     ${claims.length || rq.length ? html`<div class="card ptcard ptneeds"><div class="pth">✋ Needs you</div>
       ${claims.map((c) => html`<div class="ptrow"><b style=${{ color: kn(c.kid)?.color }}>${kn(c.kid)?.name}</b><span>${c.title} <small>★ ${c.stars}</small></span><button class="pill sm" onClick=${() => decide('/api/quest/decide', c.id, true)}>Yes</button><button class="pill sm ghost" onClick=${() => decide('/api/quest/decide', c.id, false)}>No</button></div>`)}
       ${rq.map((r) => html`<div class="ptrow"><b style=${{ color: kn(r.kid)?.color }}>${kn(r.kid)?.name}</b><span>${r.emoji} ${r.title} <small>★ ${r.cost}</small></span><button class="pill sm" onClick=${() => decide('/api/reward/decide', r.id, true)}>Yes</button><button class="pill sm ghost" onClick=${() => decide('/api/reward/decide', r.id, false)}>Not now</button></div>`)}</div>` : ''}
@@ -505,7 +537,7 @@ function App() {
     <div class="pages" ref=${pagesRef} onScroll=${onScroll}>
       ${pageList.map((p) => { const k = b.kids.find((x) => x.id === p);
         if (k) return html`<${KidPage} key=${k.id} b=${b} k=${k} refresh=${refresh} setPage=${setPage} startTimer=${startTimer} withPin=${pinApi.withPin} />`;
-        return { today: html`<${ParentToday} key="today" b=${b} refresh=${refresh} setPage=${setPage} openEv=${setEv} withPin=${pinApi.withPin} />`, week: html`<${Week} key="week" b=${b} openEv=${setEv} refresh=${refresh} withPin=${pinApi.withPin} />`, home: html`<${Home} key="home" b=${b} openEv=${setEv} setPage=${setPage} />`,
+        return { today: html`<${ParentToday} key="today" b=${b} refresh=${refresh} setPage=${setPage} openEv=${setEv} withPin=${pinApi.withPin} openParents=${(sec) => setParents(sec || true)} />`, week: html`<${Week} key="week" b=${b} openEv=${setEv} refresh=${refresh} withPin=${pinApi.withPin} />`, home: html`<${Home} key="home" b=${b} openEv=${setEv} setPage=${setPage} />`,
           wardrobe: html`<${Wardrobe} key="wardrobe" b=${b} kidId=${wardKid} refresh=${refresh} setPage=${setPage} />`, groceries: html`<${Groceries} key="groceries" b=${b} refresh=${refresh} />` }[p]; })}
     </div>
     <div class="dots">${pageList.map((p) => html`<button class=${p === page ? 'on' : ''} onClick=${() => setPage(p)} title=${p}></button>`)}</div>
@@ -516,7 +548,7 @@ function App() {
     ${ev ? html`<${EventSheet} ev=${ev} b=${b} onClose=${() => setEv(null)} />` : ''}
     ${wx ? html`<${WxPanel} b=${{ ...b, setUnits: async (u) => { await api('/api/units', { units: u }); refresh(); } }} onClose=${() => setWx(false)} />` : ''}
     ${fb ? html`<${FeedbackSheet} b=${b} page=${page} onClose=${() => setFb(false)} />` : ''}
-    ${parents ? html`<${Parents} b=${b} refresh=${refresh} pinApi=${pinApi} onClose=${() => setParents(false)} />` : ''}
+    ${parents ? html`<${Parents} b=${b} refresh=${refresh} pinApi=${pinApi} start=${typeof parents === 'string' ? parents : null} onClose=${() => setParents(false)} />` : ''}
     ${pinApi.ui}
     ${preview === 'night' ? html`<${Sleep} onWake=${() => setPreview(null)} />` : preview === 'morning' ? html`<${GoodMorning} b=${b} onDone=${() => setPreview(null)} openKid=${(id) => { setPreview(null); setTimeout(() => setPage(id), 50); }} />` : parents ? '' : asleep ? html`<${Sleep} onWake=${() => { idleRef.current = Date.now(); setAmbient(false); }} />` : morning ? html`<${GoodMorning} b=${b} onDone=${() => { idleRef.current = Date.now(); setAmbient(false); setGmClosed(true); }} openKid=${(id) => setTimeout(() => setPage(id), 50)} />` : ambient ? html`<${Ambient} b=${b} onWake=${() => setAmbient(false)} />` : ''}
   `;

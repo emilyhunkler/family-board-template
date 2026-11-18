@@ -286,6 +286,14 @@ async function payDayNotice(env, cfg, req) {
   const snap = await board(env, cfg, req, new URL('https://board.local/'));
   await notify(env, 'payday', '💰 Pay day!', snap.kids.map((k) => `${k.name} earned ${'$' + k.week.total.toFixed(2)}${k.week.prize?.earned ? ' and the weekly prize ' + (cfg.prize?.emoji || '') : ''}`).join(' · '), '/#today');
 }
+// What a new family has done so far, for the grown-ups' Getting started list.
+async function startProgress(env, cfg) {
+  const one = (sql, ...a) => env.DB.prepare(sql).bind(...a).first().then((r) => r?.n || 0).catch(() => 0);
+  const [displays, accounts, pushes, checks, meals] = await Promise.all([
+    one("SELECT COUNT(*) AS n FROM sessions WHERE kind='display' AND expires_at > ?", nowIso()), one('SELECT COUNT(*) AS n FROM users WHERE pw_hash IS NOT NULL'),
+    one('SELECT COUNT(*) AS n FROM push_subs'), one('SELECT COUNT(*) AS n FROM checks'), one('SELECT COUNT(*) AS n FROM meals')]);
+  return { calendar: cfg.calendars.some((c) => c.url && c.url !== 'sample'), display: displays > 0, accounts, grownups: cfg.family.parents.length, pushes, checked: checks > 0, meal: meals > 0 };
+}
 async function morningBriefing(env, cfg, req) {
   const zone = cfg.zone; const now = new Date(); const p = parts(now, zone); const today = ymd(now, zone); const [h, m] = (cfg.notify?.morningAt || '06:45').split(':').map(Number);
   const mins = p.h * 60 + p.mi - (h * 60 + m); if (mins < 0 || mins > 30) return; if ((await getSetting(env, 'briefing', '')) === today) return; await setSetting(env, 'briefing', today);
@@ -327,7 +335,7 @@ export default {
       const zone = cfg.zone; const today = ymd(new Date(), zone);
       ADMIN.set(req, await decideAdmin(env, req, body, cfg, session, userCount));
       const admin = () => pinOk(req);
-      if (path === '/api/board') return json({ ...(await board(env, cfg, req, url)), me: session ? { kind: session.kind, name: session.user_name, personId: session.person_id } : null, auth: { enabled: !!userCount, local, google: A.googleOn(env) } });
+      if (path === '/api/board') return json({ ...(await board(env, cfg, req, url)), start: (session?.kind === 'parent' || local) ? await startProgress(env, cfg) : null, me: session ? { kind: session.kind, name: session.user_name, personId: session.person_id } : null, auth: { enabled: !!userCount, local, google: A.googleOn(env) } });
       if (path === '/api/health') return json({ ok: true, time: nowIso() });
       if (path === '/api/version') return json({ version: env.CF_VERSION_METADATA?.id || 'dev' });
       if (path === '/api/reward/request' && method === 'POST') {

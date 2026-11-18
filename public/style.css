@@ -385,3 +385,11 @@ table.t{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}table.
 @media (max-width:820px){.pgrp{display:none}}
 .addtimer{font-size:11px;font-weight:900;color:var(--muted);background:#fff;border-radius:999px;padding:4px 10px}
 .taskrow{position:relative;padding-right:40px}.taskrow>.x{position:absolute;right:8px;top:10px}
+
+/* Getting started checklist */
+.gs{border:2px solid #cdebd8}.gshide{margin-left:auto;font-size:12px;font-weight:900;color:var(--muted);font-family:var(--body)}
+.gsrow{display:flex;align-items:center;gap:10px;padding:8px 4px;border-top:1px solid var(--soft)}.gsrow:first-of-type{border-top:0}
+.gsck{width:24px;height:24px;border-radius:50%;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;flex:none;font-weight:900;color:#fff;font-size:13px}
+.gsrow.done .gsck{background:var(--leaf);border-color:var(--leaf)}.gsrow.done .gst b{color:var(--muted);text-decoration:line-through;text-decoration-color:rgba(0,0,0,.25)}
+.gst{flex:1;min-width:0}.gst b{display:block;font-size:14.5px}.gst small{display:block;color:var(--muted);font-weight:700;font-size:12.5px;margin-top:1px}
+.gsrow .pill{flex:none}
