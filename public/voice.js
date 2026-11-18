@@ -15,6 +15,10 @@ function deviceSpeak(text, vol) { if (!('speechSynthesis' in window)) return; tr
 // Only one voice at a time: each new line stops whatever is still talking or loading, and a line
 // that has been replaced never falls back to the device voice later.
 let turn = 0, cloudId = 0;
+// When the natural voice's free daily limit runs out, stop asking for it until it resets (midnight UTC).
+let cloudOffUntil = 0; const nextUtcMidnight = () => { const d = new Date(); d.setUTCHours(24, 0, 0, 0); return d.getTime(); };
+const cloudOff = () => Date.now() < cloudOffUntil;
+const noteLimit = (url) => fetch(url).then((r) => (r.status === 503 ? r.json() : null)).then((j) => { if (j?.limit) cloudOffUntil = nextUtcMidnight(); }).catch(() => {});
 function hush() { cloudId++; try { if (player) { player.onended = player.onerror = player.onplaying = null; player.pause(); } } catch {} try { if ('speechSynthesis' in window) speechSynthesis.cancel(); } catch {} }
 // Plays the natural cloud voice. It's made on demand, so a long sentence can take several seconds the first time.
 // Resolves true once it has played, false if it never started (then the audio is stopped for good, so it
@@ -22,7 +26,7 @@ function hush() { cloudId++; try { if (player) { player.onended = player.onerror
 export function cloudSpeak(text, voice, vol = 1, maxWait = 15000) { return new Promise((resolve) => {
   if (!player) return resolve(false); let done = false, started = false; const me = ++cloudId;
   const fin = (ok) => { if (done) return; done = true; clearTimeout(t); if (!ok && !started && me === cloudId) { try { player.onplaying = null; player.pause(); player.removeAttribute('src'); player.load(); } catch {} } resolve(ok); };
-  player.onplaying = () => { started = true; }; player.onended = () => fin(true); player.onerror = () => fin(started);
+  player.onplaying = () => { started = true; }; player.onended = () => fin(true); player.onerror = () => { if (!started) noteLimit(player.src); fin(started); };
   player.volume = vol; player.src = ttsUrl(text, voice);
   player.play().catch(() => fin(false));
   const t = setTimeout(() => fin(started), maxWait); }); }
@@ -30,11 +34,13 @@ export function cloudSpeak(text, voice, vol = 1, maxWait = 15000) { return new P
 export const speakable = (t) => String(t || '').replace(/[\p{Extended_Pictographic}\u200d\ufe0f]/gu, '').replace(/×/g, ' times ').replace(/÷/g, ' divided by ').replace(/−/g, ' minus ').replace(/\s+/g, ' ').trim();
 const ttsUrl = (text, voice) => `/api/tts?v=${encodeURIComponent(voice || cfgRef.cloudVoice || 'thalia')}&t=${encodeURIComponent(text)}`;
 // Asks for lines ahead of time (one by one, in the background), so they play right away when needed.
-let warmQ = Promise.resolve(); export function prewarm(texts) { if (cfgRef.cloud === false) return; for (const t of texts.map(speakable)) if (t) warmQ = warmQ.then(() => fetch(ttsUrl(t)).then((r) => r.arrayBuffer()).catch(() => {})); }
+let warmQ = Promise.resolve(); export function prewarm(texts) { if (cfgRef.cloud === false) return; for (const t of texts.map(speakable)) if (t) warmQ = warmQ.then(() => (cloudOff() ? null : fetch(ttsUrl(t)).then((r) => (r.status === 503 ? r.json().then((j) => { if (j?.limit) cloudOffUntil = nextUtcMidnight(); }) : r.arrayBuffer())).catch(() => {}))); }
 // direct: an answer to something someone just asked, so it always speaks (softer during quiet hours).
 export function speak(text, { direct = false } = {}) { text = speakable(text); if (!text || !cfgRef.speak) return; const quietNow = quiet(); if (quietNow && !direct) return; const vol = quietNow ? 0.5 : (cfgRef.volume ?? 1); window.dispatchEvent(new Event('fb-speaking'));
   const mine = ++turn; hush();
-  if (cfgRef.cloud !== false && player) { cloudSpeak(text, cfgRef.cloudVoice, vol).then((ok) => { if (!ok && mine === turn) deviceSpeak(text, vol); }); } else deviceSpeak(text, vol); }
+  // If the natural voice can't play: use the device's own voice, or stay quiet (Parents → Voice).
+  const fallback = () => { if (mine === turn && cfgRef.fallback !== 'quiet') deviceSpeak(text, vol); };
+  if (cfgRef.cloud !== false && player && !cloudOff()) { cloudSpeak(text, cfgRef.cloudVoice, vol).then((ok) => { if (!ok) fallback(); }); } else if (cfgRef.cloud !== false) fallback(); else deviceSpeak(text, vol); }
 // iPad and iPhone only let a page play sound after a tap. Unlock on the first tap anywhere, not just the mic.
 if (typeof window !== 'undefined') { const unlock = () => { primed = false; primeSpeech(); }; window.addEventListener('pointerdown', unlock, { once: true, capture: true }); window.addEventListener('keydown', unlock, { once: true, capture: true }); }
 let ac; const ding = (up = true) => { if (!cfgRef.chime) return; try { ac = ac || new (window.AudioContext || window.webkitAudioContext)(); const o = ac.createOscillator(), g = ac.createGain(); o.connect(g); g.connect(ac.destination); const t = ac.currentTime; o.frequency.setValueAtTime(up ? 523 : 659, t); o.frequency.setValueAtTime(up ? 784 : 440, t + .1); g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.15, t + .02); g.gain.exponentialRampToValueAtTime(.0001, t + .3); o.start(t); o.stop(t + .32); } catch {} };

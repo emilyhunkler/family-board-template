@@ -9,7 +9,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import * as A from '../src/lib/auth.js';
 
-const FAMILY_TABLES = ['settings', 'checks', 'quest_claims', 'todos', 'ledger', 'groceries', 'meals', 'notes', 'cache', 'events_log', 'feedback', 'reward_requests', 'photos', 'push_subs', 'users', 'sessions', 'invites', 'quiz_runs', 'ratelimit'];
+const FAMILY_TABLES = ['settings', 'checks', 'quest_claims', 'todos', 'ledger', 'groceries', 'meals', 'notes', 'cache', 'events_log', 'feedback', 'reward_requests', 'photos', 'push_subs', 'users', 'sessions', 'invites', 'quiz_runs', 'ratelimit', 'signups', 'pairings'];
 
 test('every query is limited to one family, or marked on purpose', () => {
   const files = ['src/worker.js', ...readdirSync(new URL('../src/lib/', import.meta.url)).map((f) => 'src/lib/' + f)];
@@ -91,4 +91,88 @@ test('two families on one site never see each other', async (t) => {
   // The 15-minute job visits both families without mixing them up.
   await new Promise((resolve, reject) => { worker.scheduled({}, env, { waitUntil: (p) => p.then(resolve, reject) }); });
   assert.equal(db.prepare("SELECT COUNT(DISTINCT household_id) AS n FROM settings WHERE key='config'").get().n, 2);
+});
+
+test('a new family signs up, runs setup, and pairs a kitchen screen', async (t) => {
+  const db = new DatabaseSync(':memory:');
+  const dir = new URL('../migrations/', import.meta.url);
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.sql')).sort()) db.exec(readFileSync(new URL(f, dir), 'utf8'));
+  const env = { DB: fakeD1(db), ASSETS: { fetch: async () => new Response('') }, SITE_NAME: 'Shared Site', SIGNUP_CODES: 'BETA1, BETA2' };
+  const realFetch = globalThis.fetch; globalThis.fetch = async () => { throw new Error('no network in tests'); }; t.after(() => { globalThis.fetch = realFetch; });
+  const { default: worker } = await import('../src/worker.js');
+  // The first family already uses the site.
+  const now = new Date().toISOString();
+  db.prepare("INSERT INTO users(email,name,household_id,pw_hash,created_at) VALUES('first@example.com','First',1,'google',?)").run(now);
+  await worker.fetch(new Request('https://site.test/api/health'), env, { waitUntil() {} });
+  db.prepare("INSERT OR REPLACE INTO settings(household_id,key,value) VALUES(1,'config',?)").run(JSON.stringify({ family: { name: 'The Firsts', parents: [] }, setup: { done: true } }));
+
+  const jar = {}; const cookieHeader = (who) => Object.entries(jar[who] || {}).map(([k, v]) => `${k}=${v}`).join('; ');
+  const go = async (who, path, { method = 'GET', form, ua = 'test' } = {}) => {
+    const headers = { cookie: cookieHeader(who), 'user-agent': ua }; let body;
+    if (form) { body = new URLSearchParams(form).toString(); headers['content-type'] = 'application/x-www-form-urlencoded'; }
+    const r = await worker.fetch(new Request('https://site.test' + path, { method, headers, body, redirect: 'manual' }), env, { waitUntil() {} });
+    for (const c of r.headers.getSetCookie?.() || []) { const [kv] = c.split(';'); const [k, v] = kv.split('='); jar[who] = jar[who] || {}; if (/Max-Age=0/.test(c)) delete jar[who][k]; else jar[who][k] = v; }
+    return { status: r.status, text: await r.text(), location: r.headers.get('location') };
+  };
+
+  // Signed out: the site's name and a sign-up link, never the first family's name.
+  const home = await go('new', '/');
+  assert.match(home.text, /Shared Site/); assert.doesNotMatch(home.text, /The Firsts/); assert.match(home.text, /\/auth\/signup/); assert.match(home.text, /\/auth\/pair/);
+
+  // Wrong invite code, then a good one.
+  const base = { family: 'The Newbies', person: 'Papa', email: 'new@example.com', password: 'pancakes on sunday', zone: 'America/Chicago', method: 'password' };
+  assert.match((await go('new', '/auth/signup', { method: 'POST', form: { ...base, code: 'nope' } })).text, /invite code is not right/);
+  const made = await go('new', '/auth/signup', { method: 'POST', form: { ...base, code: 'beta2' } });
+  assert.equal(made.status, 200); assert.match(made.text, /[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}/);
+  assert.match((await go('again', '/auth/signup', { method: 'POST', form: { ...base, code: 'BETA1' } })).text, /already has a board/);
+
+  // The new family's board: its own name and time zone, the setup wizard waiting, nothing from family 1.
+  const b = JSON.parse((await go('new', '/api/board')).text);
+  assert.equal(b.config.family.name, 'The Newbies'); assert.equal(b.zone, 'America/Chicago');
+  assert.deepEqual(b.config.setup, { done: false, fresh: true }); assert.equal(b.config.family.parents[0].name, 'Papa'); assert.equal(b.auth.enabled, true);
+  const hid = db.prepare("SELECT household_id FROM users WHERE email='new@example.com'").get().household_id; assert.notEqual(hid, 1);
+
+  // A kitchen screen asks for a code; the same code comes back if the page reloads.
+  const p1 = await go('kitchen', '/auth/pair', { ua: 'Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X) Safari' }); const code = /class="code">([A-Z0-9 ]+)</.exec(p1.text)[1];
+  assert.equal((await go('kitchen', '/auth/pair')).text.includes(code), true);
+  assert.deepEqual(JSON.parse((await go('kitchen', '/auth/pair/status')).text), { waiting: true });
+
+  // A wrong code doesn't pair; the right one (typed loosely) does, into the new family only.
+  assert.match((await go('new', '/link', { method: 'POST', form: { code: 'ZZZ ZZZ' } })).text, /didn&#39;t match/);
+  assert.match((await go('new', '/link', { method: 'POST', form: { code: code.toLowerCase().replace(' ', '-') } })).text, /will open the board/);
+  assert.deepEqual(JSON.parse((await go('kitchen', '/auth/pair/status')).text), { ok: true });
+  const kb = JSON.parse((await go('kitchen', '/api/board')).text);
+  assert.equal(kb.config.family.name, 'The Newbies'); assert.equal(kb.me.kind, 'display');
+  assert.equal(db.prepare("SELECT household_id FROM sessions WHERE kind='display'").get().household_id, hid);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM pairings').get().n, 0, 'a used code is gone');
+
+  // The kitchen screen can't pair other screens, and a signed-out phone is sent to sign in.
+  assert.match((await go('kitchen', '/link')).text, /grown-up/);
+  assert.equal((await go('stranger', '/link')).status, 303);
+});
+
+test('a new family can sign up with Google', async (t) => {
+  const db = new DatabaseSync(':memory:');
+  const dir = new URL('../migrations/', import.meta.url);
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.sql')).sort()) db.exec(readFileSync(new URL(f, dir), 'utf8'));
+  const env = { DB: fakeD1(db), ASSETS: { fetch: async () => new Response('') }, SITE_NAME: 'Shared Site', SIGNUP_CODES: 'BETA1', GOOGLE_CLIENT_ID: 'cid', GOOGLE_CLIENT_SECRET: 'sec', GOOGLE_TOKEN_URL: 'https://token.test/' };
+  const b64u = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+  const realFetch = globalThis.fetch; t.after(() => { globalThis.fetch = realFetch; });
+  globalThis.fetch = async (u) => { if (String(u) === 'https://token.test/') return new Response(JSON.stringify({ id_token: `${b64u({})}.${b64u({ iss: 'https://accounts.google.com', aud: 'cid', exp: Date.now() / 1000 + 600, email: 'G@Example.com', email_verified: true })}.sig` })); throw new Error('no network'); };
+  const { default: worker } = await import('../src/worker.js');
+  const jar = {}; const go = async (path, { method = 'GET', form } = {}) => {
+    const headers = { cookie: Object.entries(jar).map(([k, v]) => `${k}=${v}`).join('; ') }; let body;
+    if (form) { body = new URLSearchParams(form).toString(); headers['content-type'] = 'application/x-www-form-urlencoded'; }
+    const r = await worker.fetch(new Request('https://site.test' + path, { method, headers, body, redirect: 'manual' }), env, { waitUntil() {} });
+    for (const c of r.headers.getSetCookie()) { const [kv] = c.split(';'); const i = kv.indexOf('='); if (/Max-Age=0/.test(c)) delete jar[kv.slice(0, i)]; else jar[kv.slice(0, i)] = kv.slice(i + 1); }
+    return { status: r.status, location: r.headers.get('location'), text: await r.text() };
+  };
+  const s1 = await go('/auth/signup', { method: 'POST', form: { code: 'beta1', family: 'The Googlers', person: 'Mama', zone: 'Europe/Dublin', method: 'google' } });
+  assert.match(s1.location, /^\/auth\/google\?signup=[0-9a-f]{64}$/);
+  const s2 = await go(s1.location); const state = new URL(s2.location).searchParams.get('state'); assert.ok(state);
+  const s3 = await go(`/auth/google/callback?state=${state}&code=abc`); assert.equal(s3.status, 303, s3.text);
+  const b = JSON.parse((await go('/api/board')).text);
+  assert.equal(b.config.family.name, 'The Googlers'); assert.equal(b.zone, 'Europe/Dublin'); assert.equal(b.me.kind, 'parent');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM signups').get().n, 0);
+  assert.equal(db.prepare("SELECT pw_hash FROM users WHERE email='g@example.com'").get().pw_hash, 'google');
 });

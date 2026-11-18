@@ -42,15 +42,15 @@ export function deviceLabel(req) { const ua = req.headers.get('user-agent') || '
 // Google sign-in (OpenID Connect, authorization code + PKCE). Client secret stays on the server.
 export const googleOn = (env) => !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
 const b64u = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-export async function googleStart(env, origin, { display, ticket }) {
+export async function googleStart(env, origin, { display, ticket, signup }) {
   const state = randomHex(16), verifier = randomHex(32); const challenge = b64u(await crypto.subtle.digest('SHA-256', enc.encode(verifier)));
   const u = new URL('https://accounts.google.com/o/oauth2/v2/auth');
   for (const [k, v] of Object.entries({ client_id: env.GOOGLE_CLIENT_ID, redirect_uri: origin + '/auth/google/callback', response_type: 'code', scope: 'openid email profile', state, code_challenge: challenge, code_challenge_method: 'S256', prompt: 'select_account' })) u.searchParams.set(k, v);
-  const cookie = `fbo=${state}.${verifier}.${display ? 1 : 0}.${ticket || ''}; Path=/auth; Max-Age=600; HttpOnly; SameSite=Lax; Secure`;
+  const cookie = `fbo=${state}.${verifier}.${display ? 1 : 0}.${ticket || ''}.${signup || ''}; Path=/auth; Max-Age=600; HttpOnly; SameSite=Lax; Secure`;
   return { url: u.toString(), cookie };
 }
 export async function googleFinish(env, req, origin) {
-  const q = new URL(req.url).searchParams; const [state, verifier, display, ticket] = (cookieOf(req, 'fbo') || '').split('.');
+  const q = new URL(req.url).searchParams; const [state, verifier, display, ticket, signup] = (cookieOf(req, 'fbo') || '').split('.');
   if (q.get('error')) return { error: q.get('error') === 'access_denied' ? 'Google sign-in was cancelled.' : 'Google said: ' + q.get('error') };
   if (!state || !sameString(state, q.get('state') || '')) return { error: 'That sign-in took too long or was opened in another browser. Please try again.' };
   const r = await fetch(env.GOOGLE_TOKEN_URL || 'https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ code: q.get('code') || '', client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET, redirect_uri: origin + '/auth/google/callback', grant_type: 'authorization_code', code_verifier: verifier }) });
@@ -59,20 +59,20 @@ export async function googleFinish(env, req, origin) {
   let c; try { c = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(j.id_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')), (x) => x.charCodeAt(0)))); } catch { return { error: 'Google sent an unreadable answer.' }; }
   const issOk = c.iss === 'https://accounts.google.com' || c.iss === 'accounts.google.com';
   if (!issOk || c.aud !== env.GOOGLE_CLIENT_ID || !(c.exp * 1000 > Date.now()) || !c.email || c.email_verified === false || c.email_verified === 'false') return { error: 'Google could not confirm that email address.' };
-  return { email: String(c.email).toLowerCase(), name: c.given_name || c.name || '', display: display === '1', ticket: ticket || '' };
+  return { email: String(c.email).toLowerCase(), name: c.given_name || c.name || '', display: display === '1', ticket: ticket || '', signup: signup || '' };
 }
 export const clearGoogleCookie = () => 'fbo=; Path=/auth; Max-Age=0; HttpOnly; SameSite=Lax; Secure';
 
 // Pages (served before the app loads, so plain HTML)
-const page = (title, inner, status = 200) => new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${title}</title><link rel="icon" href="/icon.svg"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><link rel="manifest" href="/manifest.webmanifest"><style>
+export const page = (title, inner, status = 200) => new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${title}</title><link rel="icon" href="/icon.svg"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><link rel="manifest" href="/manifest.webmanifest"><style>
 *{box-sizing:border-box}body{font-family:Nunito,system-ui,-apple-system,sans-serif;background:linear-gradient(160deg,#eaf7ee,#d9f0e2 55%,#e6f4ff);margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;color:#1f2a44}
 .card{background:#fff;border-radius:24px;padding:26px 28px;box-shadow:0 10px 30px rgba(31,90,60,.12);width:min(400px,100%)}h1{font-size:24px;color:#1f3a5f;margin:0 0 4px}p{color:#6b7280;font-size:14px;margin:0 0 14px;line-height:1.4}
 label{display:block;font-weight:800;font-size:13px;margin:12px 0 4px;color:#3b4a66}input[type=email],input[type=password],input[type=text]{font-size:17px;width:100%;padding:11px 13px;border:2px solid #cfe5d6;border-radius:12px}input:focus{outline:none;border-color:#1f3a5f}
 .chk{display:flex;gap:10px;align-items:flex-start;margin-top:14px;font-weight:700;font-size:14px;color:#3b4a66}.chk input{width:20px;height:20px;margin-top:1px}.chk small{display:block;color:#6b7280;font-weight:600}
 button.g{background:#fff;color:#1f2a44;border:2px solid #cfe5d6;display:flex;align-items:center;justify-content:center;gap:10px}button{margin-top:16px;width:100%;padding:13px;border:0;border-radius:999px;background:#1f3a5f;color:#fff;font-weight:800;font-size:16px;cursor:pointer}.e{color:#b00020;font-weight:800;background:#ffe4e8;padding:8px 12px;border-radius:10px}.ok{color:#1f6a3b;font-weight:800;background:#dff1e5;padding:8px 12px;border-radius:10px}
-details{margin-top:14px;font-size:14px;color:#3b4a66}summary{cursor:pointer;font-weight:800;color:#1f3a5f}a{color:#1f3a5f;font-weight:800}</style><div class="card">${inner}</div></html>`, { status, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-frame-options': 'DENY' } });
-const escHtml = (s) => String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-export function signInPage({ msg = '', ok = '', email = '', name = 'Family Board', google = false } = {}) {
+details{margin-top:14px;font-size:14px;color:#3b4a66}.more{margin:18px 0 0;font-size:14px;line-height:1.9;text-align:center}.code{font-size:44px;font-weight:900;letter-spacing:.18em;text-align:center;color:#1f3a5f;background:#eaf7ee;border-radius:16px;padding:14px 0;margin:10px 0;font-family:ui-monospace,Menlo,monospace}summary{cursor:pointer;font-weight:800;color:#1f3a5f}a{color:#1f3a5f;font-weight:800}</style><div class="card">${inner}</div></html>`, { status, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-frame-options': 'DENY' } });
+export const escHtml = (s) => String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+export function signInPage({ msg = '', ok = '', email = '', name = 'Family Board', google = false, signup = false } = {}) {
   const pw = `<form method="post" action="/auth/signin"><label for="e">Email</label><input id="e" name="email" type="email" autocomplete="username" required value="${escHtml(email)}"><label for="p">Password</label><input id="p" name="password" type="password" autocomplete="current-password" required>
   <label class="chk"><input type="checkbox" name="display" value="1"><span>This is our family's kitchen display<small>Stays signed in for the kids. Parents still needs the PIN on this screen.</small></span></label><button>Sign in</button></form>
   <details><summary>Forgot your password?</summary><p style="margin-top:8px">Ask the other parent to reset it in Parents → Sign-in and devices, or use the recovery code you saved when sign-in was turned on.</p>
@@ -80,7 +80,8 @@ export function signInPage({ msg = '', ok = '', email = '', name = 'Family Board
   const g = `<form method="get" action="/auth/google"><button class="g" type="submit"><svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>Continue with Google</button>
   <label class="chk"><input type="checkbox" name="display" value="1"><span>This is our family's kitchen display<small>Stays signed in for the kids. Parents still needs the PIN on this screen.</small></span></label></form>
   <details><summary>Use a password instead</summary>${pw}</details>`;
-  return page('Sign in', `<h1>${escHtml(name)}</h1><p>${google ? 'Sign in with your Google account. Each device stays signed in.' : 'Sign in with your parent account. Each device stays signed in.'}</p>${msg ? `<p class="e">${escHtml(msg)}</p>` : ''}${ok ? `<p class="ok">${escHtml(ok)}</p>` : ''}${google ? g : pw}`, msg ? 401 : 200);
+  const more = `<p class="more"><a href="/auth/pair">Setting up the kitchen screen? Get a pairing code</a>${signup ? '<br><a href="/auth/signup">New here? Create your family\'s board</a>' : ''}</p>`;
+  return page('Sign in', `<h1>${escHtml(name)}</h1><p>${google ? 'Sign in with your Google account. Each device stays signed in.' : 'Sign in with your parent account. Each device stays signed in.'}</p>${msg ? `<p class="e">${escHtml(msg)}</p>` : ''}${ok ? `<p class="ok">${escHtml(ok)}</p>` : ''}${google ? g : pw}${more}`, msg ? 401 : 200);
 }
 export function invitePage({ token, name, email, msg = '' }) {
   return page('Set your password', `<h1>Welcome, ${escHtml(name)}!</h1><p>Choose a password for <b>${escHtml(email)}</b>. You'll use it to sign in to the family board on your phone.</p>${msg ? `<p class="e">${escHtml(msg)}</p>` : ''}

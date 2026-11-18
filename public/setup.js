@@ -32,7 +32,7 @@ function blankStart(x) {
 const STEPS = ['Welcome', 'Grown-ups', 'Kids', 'Pet', 'Home', 'Calendar', 'Chores', 'Looks', 'Finish'];
 
 export function Setup({ b, pin, onDone }) {
-  const rerun = !!b.auth?.enabled; // a family that already has sign-in is running setup again
+  const rerun = !!b.auth?.enabled && !b.config?.setup?.fresh; // a family that already has sign-in is running setup again (a family that just signed up is not)
   const [c, setC] = useState(null); const [step, setStep] = useState(0); const [busy, setBusy] = useState(false);
   useEffect(() => { api('/api/admin/config', undefined, pin).then((x) => setC(rerun ? x : blankStart(x))).catch((e) => toast(e.message)); }, []);
   if (!c) return html`<div class="wiz"><div class="wizcard"><h2>Getting setup ready…</h2></div></div>`;
@@ -145,15 +145,16 @@ function Looks({ c, edit }) {
 function Finish({ c, edit, b, pin, rerun, save, onDone, setBusy, back }) {
   const [newPin, setNewPin] = useState(rerun ? '' : ''); const [mode, setMode] = useState(b.auth?.google ? 'google' : 'password');
   const [email, setEmail] = useState(''); const [pw, setPw] = useState(''); const [who, setWho] = useState(c.family.parents[0]?.id); const [display, setDisplay] = useState(null); const [code, setCode] = useState(''); const [working, setWorking] = useState(false);
+  const hasAccount = !!b.auth?.enabled; // signed up on a shared site, or running setup again
   const pinOk = rerun ? !newPin || /^\d{4,8}$/.test(newPin) : /^\d{4,8}$/.test(newPin);
   const finish = async () => {
-    if (!pinOk) { toast('Choose a PIN of 4 to 8 digits'); return; } if (!rerun && display === null) { toast('Pick which device this is'); return; }
+    if (!pinOk) { toast('Choose a PIN of 4 to 8 digits'); return; } if (!hasAccount && display === null) { toast('Pick which device this is'); return; }
     setWorking(true); setBusy(true);
     const n = structuredClone(c); if (newPin) n.pin = newPin; n.setup = { done: true }; if (!n.week.startedOn) n.week.startedOn = b.today; const usePin = newPin || pin;
     try {
       await put('/api/admin/config', { config: n }, pin || usePin);
       await api('/api/admin/refresh', {}, usePin).catch(() => {});
-      if (rerun) { confetti(); chime('win'); onDone(); return; }
+      if (hasAccount) { confetti(); chime('win'); onDone(); return; }
       if (mode === 'google') { const r = await api('/api/admin/setup-google', { personId: who, display }, usePin); location.href = r.url; return; }
       const r = await api('/api/admin/setup', { email, password: pw, personId: who, display }, usePin); setCode(r.recoveryCode); confetti(); chime('win');
     } catch (e) { toast(e.message || 'Something went wrong'); } finally { setWorking(false); setBusy(false); }
@@ -161,7 +162,7 @@ function Finish({ c, edit, b, pin, rerun, save, onDone, setBusy, back }) {
   if (code) return html`<h2>You're all set! 🎉</h2><p class="wizp">Save this recovery code somewhere safe, like your password manager. It's the way back in if you ever forget your password.</p><div class="wizcode">${code}</div><button class="pill" onClick=${() => location.reload()}>Open the board</button>`;
   return html`<h2>${rerun ? 'All done?' : 'Last step: keep it yours'}</h2>
     <div class="wizf"><label>${rerun ? 'New grown-up PIN (leave blank to keep it)' : 'Grown-up PIN, for Parents on the shared screen'}</label><input class="gbox" style="max-width:200px;letter-spacing:.3em;text-align:center" inputmode="numeric" maxlength="8" value=${newPin} placeholder="••••" onInput=${(e) => setNewPin(e.target.value.replace(/\D/g, ''))} /></div>
-    ${rerun ? '' : html`<div class="wizf"><label>Your sign-in. Only signed-in devices can open the board.</label>
+    ${hasAccount ? '' : html`<div class="wizf"><label>Your sign-in. Only signed-in devices can open the board.</label>
       <div class="chips big">${c.family.parents.map((p) => html`<button class=${who === p.id ? 'on' : ''} onClick=${() => setWho(p.id)}>I'm ${p.name}</button>`)}</div>
       ${b.auth?.google ? html`<div class="chips big"><button class=${mode === 'google' ? 'on' : ''} onClick=${() => setMode('google')}>Continue with Google</button><button class=${mode === 'password' ? 'on' : ''} onClick=${() => setMode('password')}>Email and password</button></div>` : ''}
       ${mode === 'password' ? html`<input class="gbox" type="email" autocomplete="username" placeholder="Email" value=${email} onInput=${(e) => setEmail(e.target.value)} /><input class="gbox" type="password" autocomplete="new-password" placeholder="Password, at least 10 characters" value=${pw} onInput=${(e) => setPw(e.target.value)} />` : ''}

@@ -5,6 +5,7 @@ import * as H from './lib/helpers.js';
 import { interpret } from './lib/voice.js';
 import { makeVapid, sendPush } from './lib/push.js';
 import * as A from './lib/auth.js';
+import * as O from './lib/onboard.js';
 
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
 const err = (msg, status = 400, extra = {}) => json({ error: msg, ...extra }, status);
@@ -231,8 +232,25 @@ const redirect = (to, cookie) => new Response(null, { status: 303, headers: { lo
 const ipOf = (req) => req.headers.get('cf-connecting-ip') || 'local';
 
 // ---------- sign-in routes (public) ----------
-async function authRoute(env, req, path, cfg, userCount) {
-  const name = cfg.family?.name || 'Family Board'; const google = A.googleOn(env); const origin = new URL(req.url).origin;
+// A shared site (SITE_NAME set) never shows one family's name to someone who isn't signed in.
+const siteName = (env, cfg) => env.SITE_NAME || cfg.family?.name || 'Family Board';
+const signupCodes = (env) => String(env.SIGNUP_CODES || '').split(',').map((x) => x.trim().toUpperCase()).filter(Boolean);
+const validZone = (z) => { try { new Intl.DateTimeFormat('en-US', { timeZone: z }); return !!z; } catch { return false; } };
+const withCookies = (res, ...cookies) => { const h = new Headers(res.headers); for (const c of cookies) h.append('set-cookie', c); return new Response(res.body, { status: res.status, headers: h }); };
+
+// A new family on a shared site: its own household, settings (setup wizard still to run) and first grown-up.
+async function createFamily(env, { family, person, zone, email, pw }) {
+  const hr = await env.DB.prepare('INSERT INTO households(name,created_at) VALUES(?,?)').bind(family, nowIso()).run(); const fenv = { ...env, HID: hr.meta.last_row_id };
+  const cfg = structuredClone(defaults); cfg.family.name = family; if (validZone(zone)) cfg.zone = zone; cfg.setup = { done: false, fresh: true };
+  cfg.family.parents[0] = { ...cfg.family.parents[0], name: person, match: [person] };
+  await saveConfig(fenv, cfg);
+  const u = await env.DB.prepare('INSERT INTO users(email,name,person_id,pw_hash,pw_salt,pw_iter,created_at,last_login,household_id) VALUES(?,?,?,?,?,?,?,?,?)').bind(email, person, cfg.family.parents[0].id, pw ? pw.hash : 'google', pw ? pw.salt : null, pw ? pw.iter : null, nowIso(), nowIso(), fenv.HID).run();
+  let recovery = null; if (pw) { recovery = A.recoveryCode(); await setSetting(fenv, 'recovery', { hash: await A.sha256hex('rc:' + recovery), created_at: nowIso() }); }
+  return { env: fenv, userId: u.meta.last_row_id, recovery };
+}
+
+async function authRoute(env, req, path, cfg, userCount, session) {
+  const name = siteName(env, cfg); const google = A.googleOn(env); const origin = new URL(req.url).origin;
   if (path === '/auth/signin' && req.method === 'POST') {
     const f = await formOf(req); const email = (f.email || '').trim().toLowerCase(); const ip = ipOf(req);
     const wait = (await A.check(env, 'login:' + email, 5)) || (await A.check(env, 'loginip:' + ip, 30)); if (wait) return A.signInPage({ msg: `Too many tries. Wait ${wait} minute${wait === 1 ? '' : 's'} and try again.`, email, name, google });
@@ -244,7 +262,7 @@ async function authRoute(env, req, path, cfg, userCount) {
   }
   if (path === '/auth/google') {
     if (!google) return A.simplePage('Google sign-in is not set up yet', 'Use your email and password for now.');
-    const q = new URL(req.url).searchParams; const st = await A.googleStart(env, origin, { display: q.get('display') === '1', ticket: (q.get('ticket') || '').replace(/[^0-9a-f]/g, '') });
+    const q = new URL(req.url).searchParams; const st = await A.googleStart(env, origin, { display: q.get('display') === '1', ticket: (q.get('ticket') || '').replace(/[^0-9a-f]/g, ''), signup: (q.get('signup') || '').replace(/[^0-9a-f]/g, '') });
     return new Response(null, { status: 302, headers: { location: st.url, 'set-cookie': st.cookie } });
   }
   if (path === '/auth/google/callback') {
@@ -252,6 +270,14 @@ async function authRoute(env, req, path, cfg, userCount) {
     const g = await A.googleFinish(env, req, origin); const fail = (m) => new Response(A.signInPage({ msg: m, name, google }).body, { status: 401, headers: { 'content-type': 'text/html; charset=utf-8', 'set-cookie': A.clearGoogleCookie() } });
     if (g.error) return fail(g.error);
     let u = await env.DB.prepare('SELECT * FROM users /* all-families */ WHERE email=?').bind(g.email).first();
+    if (g.signup) {
+      const sid = await A.sha256hex(g.signup); const su = await env.DB.prepare('SELECT * FROM signups /* all-families: by secret ticket */ WHERE id=? AND expires_at > ?').bind(sid, nowIso()).first();
+      if (!su) return fail('That sign-up took too long. Please start again.');
+      if (u) return fail(`${g.email} already has a board. Sign in instead.`);
+      const fam = await createFamily(env, { family: su.family, person: su.person, zone: su.zone, email: g.email }); await env.DB.prepare('DELETE FROM signups /* all-families */ WHERE id=?').bind(sid).run();
+      const token = await A.createSession(fam.env, { userId: fam.userId, householdId: fam.env.HID, kind: 'parent', label: A.deviceLabel(req) });
+      const h = new Headers({ location: '/' }); h.append('set-cookie', A.sessionCookie(token, 'parent')); h.append('set-cookie', A.clearGoogleCookie()); return new Response(null, { status: 303, headers: h });
+    }
     if (g.ticket) {
       const t = await getSetting(env, 'setup_ticket', null); const ok = t && t.expires > Date.now() && A.sameString(await A.sha256hex(g.ticket), t.hash);
       if (!ok) return fail('That setup link expired. Start again from Parents → Sign-in and devices.');
@@ -286,6 +312,57 @@ async function authRoute(env, req, path, cfg, userCount) {
     const h = await A.hashPassword(f.password); await env.DB.prepare('UPDATE users SET pw_hash=?, pw_salt=?, pw_iter=?, last_login=? WHERE id=? AND household_id=?').bind(h.hash, h.salt, h.iter, nowIso(), inv.user_id, inv.household_id).run();
     await env.DB.prepare('UPDATE invites SET used_at=? WHERE id=? AND household_id=?').bind(nowIso(), inv.id, inv.household_id).run();
     const token = await A.createSession(env, { userId: inv.user_id, householdId: inv.household_id, kind: 'parent', label: A.deviceLabel(req) }); return redirect('/', A.sessionCookie(token, 'parent'));
+  }
+  // ----- a new family signs up (shared sites only; needs an invite code while in testing) -----
+  if (path === '/auth/signup') {
+    if (!signupCodes(env).length) return A.simplePage('Sign-up is closed', 'This board is not taking new families right now.');
+    if (req.method !== 'POST') return O.signupPage({ site: name, google });
+    const f = await formOf(req); const ip = ipOf(req); const again = (msg) => O.signupPage({ site: name, google, msg, v: { ...f, password: '' } });
+    const wait = await A.check(env, 'signup:' + ip, 10); if (wait) return again(`Too many tries. Wait ${wait} minutes.`);
+    const code = String(f.code || '').trim().toUpperCase(); if (!signupCodes(env).some((c) => A.sameString(c, code))) { await A.fail(env, 'signup:' + ip, 60 * 60); return again('That invite code is not right.'); }
+    const family = String(f.family || '').trim().slice(0, 40), person = String(f.person || '').trim().slice(0, 30); if (!family || !person) return again('Add your family name and what the kids call you.');
+    await A.fail(env, 'signup:' + ip, 60 * 60); // every sign-up counts toward the hourly limit, not only mistakes
+    if (f.method === 'google') {
+      if (!google) return again('Google sign-in is not set up here. Use an email and password.');
+      const ticket = A.randomHex(32); await env.DB.prepare('INSERT INTO signups /* all-families */ (id,family,person,zone,created_at,expires_at) VALUES(?,?,?,?,?,?)').bind(await A.sha256hex(ticket), family, person, String(f.zone || '').slice(0, 60), nowIso(), new Date(Date.now() + 10 * 60 * 1000).toISOString()).run();
+      return redirect('/auth/google?signup=' + ticket);
+    }
+    const email = String(f.email || '').trim().toLowerCase(); if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return again('Enter a valid email.');
+    const bad = A.passwordProblem(f.password); if (bad) return again(bad);
+    if (await env.DB.prepare('SELECT id FROM users /* all-families: an email belongs to one family */ WHERE email=?').bind(email).first()) return again('That email already has a board. Sign in instead.');
+    const fam = await createFamily(env, { family, person, zone: f.zone, email, pw: await A.hashPassword(f.password) });
+    const token = await A.createSession(fam.env, { userId: fam.userId, householdId: fam.env.HID, kind: 'parent', label: A.deviceLabel(req) });
+    return withCookies(O.welcomePage(fam.recovery), A.sessionCookie(token, 'parent'));
+  }
+  // ----- a kitchen screen joins a family with a short code -----
+  if (path === '/auth/pair') {
+    if (session) return redirect('/');
+    const ip = ipOf(req); const old = cookieOf(req, 'fbp'); const now = nowIso();
+    if (old && /^[0-9a-f]{64}$/.test(old)) { const row = await env.DB.prepare('SELECT * FROM pairings /* all-families: by secret */ WHERE id=? AND expires_at > ? AND household_id IS NULL').bind(await A.sha256hex(old), now).first(); if (row) return O.pairPage({ code: row.code, origin, site: name }); }
+    const wait = await A.check(env, 'pairnew:' + ip, 20); if (wait) return A.simplePage('Too many codes', `Wait ${wait} minutes and try again.`); await A.fail(env, 'pairnew:' + ip, 60 * 60);
+    await env.DB.prepare('DELETE FROM pairings /* all-families: tidy up */ WHERE expires_at < ?').bind(now).run();
+    const secret = A.randomHex(32); let code = '';
+    for (let i = 0; i < 5 && !code; i++) { const c = O.pairCode(); try { await env.DB.prepare('INSERT INTO pairings /* all-families: no family yet */ (id,code,created_at,expires_at) VALUES(?,?,?,?)').bind(await A.sha256hex(secret), c, now, new Date(Date.now() + 15 * 60 * 1000).toISOString()).run(); code = c; } catch {} }
+    if (!code) return A.simplePage('Something went wrong', 'Please reload to get a new code.');
+    return withCookies(O.pairPage({ code, origin, site: name }), `fbp=${secret}; Path=/auth/pair; Max-Age=900; HttpOnly; SameSite=Lax; Secure`);
+  }
+  if (path === '/auth/pair/status') {
+    const s2 = cookieOf(req, 'fbp'); if (!s2 || !/^[0-9a-f]{64}$/.test(s2)) return json({ expired: true });
+    const id = await A.sha256hex(s2); const row = await env.DB.prepare('SELECT * FROM pairings /* all-families: by secret */ WHERE id=? AND expires_at > ?').bind(id, nowIso()).first();
+    if (!row) return json({ expired: true }); if (!row.household_id) return json({ waiting: true });
+    await env.DB.prepare('DELETE FROM pairings /* all-families: by secret */ WHERE id=?').bind(id).run();
+    const token = await A.createSession({ ...env, HID: row.household_id }, { userId: row.claimed_by, householdId: row.household_id, kind: 'display', label: 'Kitchen display · ' + A.deviceLabel(req) });
+    return withCookies(json({ ok: true }), A.sessionCookie(token, 'display'), 'fbp=; Path=/auth/pair; Max-Age=0; HttpOnly; SameSite=Lax; Secure');
+  }
+  if (path === '/link') {
+    if (!session) return redirect('/?next=link');
+    if (session.kind !== 'parent') return A.simplePage('Use a grown-up\'s phone', 'Open this page on a phone that is signed in as a grown-up, not on the kitchen screen.');
+    if (req.method !== 'POST') return O.linkPage({ family: cfg.family?.name });
+    const f = await formOf(req); const key = 'link:' + session.id; const wait = await A.check(env, key, 10); if (wait) return O.linkPage({ family: cfg.family?.name, msg: `Too many tries. Wait ${wait} minutes.` });
+    const code = O.cleanCode(f.code); const row = code.length === 6 ? await env.DB.prepare('SELECT * FROM pairings /* all-families: claimed below */ WHERE code=? AND expires_at > ? AND household_id IS NULL').bind(code, nowIso()).first() : null;
+    if (!row) { await A.fail(env, key, 60 * 60); return O.linkPage({ family: cfg.family?.name, msg: "That code didn't match. Check the screen, or get a new code there." }); }
+    await env.DB.prepare('UPDATE pairings SET household_id=?, claimed_by=? WHERE id=? AND household_id IS NULL').bind(env.HID, session.user_id, row.id).run();
+    return O.linkPage({ ok: 'The kitchen screen will open the board in a few seconds.' });
   }
   if (path === '/auth/signout') { const tok = cookieOf(req, 'fbs'); if (tok && /^[0-9a-f]{64}$/.test(tok)) await env.DB.prepare('DELETE FROM sessions /* all-families: by secret token */ WHERE id=?').bind(await A.sha256hex(tok)).run(); return redirect('/', A.clearCookie()); }
   return null;
@@ -340,6 +417,8 @@ export default {
   async scheduled(ev, env, ctx) {
     const ids = new Set([1]); for (const r of (await env.DB.prepare('SELECT id FROM households /* all-families: the job visits each one */ ORDER BY id').all().catch(() => ({ results: [] }))).results) ids.add(r.id);
     const req = new Request('https://family-board.local/');
+    // Once a day, drop saved voice clips nobody has played in 90 days.
+    const nowD = new Date(); if (nowD.getUTCHours() === 9 && nowD.getUTCMinutes() < 15) ctx.waitUntil(env.DB.prepare('DELETE FROM tts_cache /* all-families: shared voice clips */ WHERE used_at < ?').bind(new Date(Date.now() - 90 * 86400000).toISOString()).run().catch(() => {}));
     ctx.waitUntil((async () => { for (const id of ids) { const fenv = { ...env, HID: id }; try { const cfg = await getConfig(fenv); await Promise.all([getEvents(fenv, cfg, req, true), cached(fenv, wxKey(cfg), 0, () => H.fetchWeather(cfg), true), morningBriefing(fenv, cfg, req), payDayNotice(fenv, cfg, req).catch(() => {})]); } catch {} } })());
   },
   async fetch(req, env, ctx) {
@@ -348,7 +427,7 @@ export default {
     const session = userCount ? await A.readSession(env, req) : null;
     // From here on every lookup is for one family: the signed-in device's, or family 1 before sign-in exists.
     env = { ...env, HID: session?.household_id || 1 };
-    if (path.startsWith('/auth/')) { const r = await authRoute(env, req, path, await getConfig(env), userCount); if (r) return r; }
+    if (path.startsWith('/auth/') || path === '/link') { const r = await authRoute(env, req, path, await getConfig(env), userCount, session); if (r) return r; }
     if (path === '/api/login' && req.method === 'POST') {
       if (userCount) return redirect('/');
       const f = await formOf(req); const code = (f.code || '').trim(); const ip = ipOf(req); const wait = await A.check(env, 'code:' + ip, 10); if (wait) return A.legacyCodePage(`Too many tries. Wait ${wait} minutes.`, !!env.SETUP_CODE);
@@ -359,7 +438,7 @@ export default {
     const openPaths = ['/icon.svg', '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png', '/apple-touch-icon-precomposed.png', '/manifest.webmanifest', '/api/health'];
     const local = url.hostname.startsWith('localhost') || url.hostname === '127.0.0.1';
     if (!openPaths.includes(path)) {
-      if (userCount) { if (!session) return path.startsWith('/api/') ? json({ error: 'sign in', needLogin: true }, 401) : A.signInPage({ name: (await getConfig(env)).family?.name, google: A.googleOn(env) }); }
+      if (userCount) { if (!session) return path.startsWith('/api/') ? json({ error: 'sign in', needLogin: true }, 401) : A.signInPage({ name: siteName(env, await getConfig(env)), google: A.googleOn(env), signup: signupCodes(env).length > 0 }); }
       else if (!local) { const g = await getGate(env); if (cookieOf(req, 'fb') !== g.hash) return path.startsWith('/api/') ? json({ error: 'sign in', needLogin: true }, 401) : A.legacyCodePage('', !!env.SETUP_CODE); }
     }
     if (!path.startsWith('/api/')) { const r = await env.ASSETS.fetch(req); if (!/\.(js|css|html|webmanifest)$|^\/$/.test(path)) return r; const h = new Headers(r.headers); h.set('cache-control', 'no-cache'); return new Response(r.body, { status: r.status, headers: h }); }
@@ -419,14 +498,17 @@ export default {
       if (path === '/api/tts') {
         const text = (url.searchParams.get('t') || '').slice(0, 400).trim(); const voice = (url.searchParams.get('v') || cfg.voice.cloudVoice || 'thalia').replace(/[^a-z]/g, '');
         if (!text || !env.AI) return err('no voice', 404);
-        const key = new Request(`https://tts.cache/${voice}/${encodeURIComponent(text)}`); const hit = await caches.default.match(key); if (hit) return hit;
+        // Each clip is made once and saved in the database (Cloudflare's cache does nothing on workers.dev addresses),
+        // because the AI voice has a daily free limit.
+        const audioRes = (buf) => new Response(buf, { headers: { 'content-type': 'audio/mpeg', 'cache-control': 'private, max-age=2592000' } });
+        const saved = await env.DB.prepare('SELECT audio FROM tts_cache /* all-families: shared voice clips */ WHERE voice=? AND text=?').bind(voice, text).first().catch(() => null);
+        if (saved?.audio) { ctx.waitUntil(env.DB.prepare('UPDATE tts_cache /* all-families: shared voice clips */ SET used_at=? WHERE voice=? AND text=?').bind(nowIso(), voice, text).run().catch(() => {})); return audioRes(new Uint8Array(saved.audio)); }
         try {
           const out = await env.AI.run('@cf/deepgram/aura-2-en', { text, speaker: voice, encoding: 'mp3' });
-          const buf = out instanceof ReadableStream ? await new Response(out).arrayBuffer() : out?.audio ? Uint8Array.from(atob(out.audio), (c) => c.charCodeAt(0)) : out;
-          const res = new Response(buf, { headers: { 'content-type': 'audio/mpeg', 'cache-control': 'private, max-age=2592000' } });
-          ctx.waitUntil(caches.default.put(key, new Response(buf, { headers: { 'content-type': 'audio/mpeg', 'cache-control': 'public, max-age=2592000' } })));
-          return res;
-        } catch (e) { return err('voice unavailable: ' + (e.message || e), 503); }
+          const buf = new Uint8Array(out instanceof ReadableStream ? await new Response(out).arrayBuffer() : out?.audio ? Uint8Array.from(atob(out.audio), (c) => c.charCodeAt(0)) : out);
+          ctx.waitUntil(env.DB.prepare('INSERT OR REPLACE INTO tts_cache /* all-families: shared voice clips */ (voice,text,audio,created_at,used_at) VALUES(?,?,?,?,?)').bind(voice, text, buf, nowIso(), nowIso()).run().catch(() => {}));
+          return audioRes(buf);
+        } catch (e) { const m = String(e.message || e); return json({ error: 'voice unavailable: ' + m, limit: /4006|daily free allocation/i.test(m) }, 503); }
       }
       if (path === '/api/units' && method === 'POST') { cfg.weather.units = body.units === 'celsius' ? 'celsius' : 'fahrenheit'; await saveConfig(env, cfg); return json({ ok: true, units: cfg.weather.units }); }
       if (path === '/api/feedback' && method === 'POST') {

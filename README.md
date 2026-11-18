@@ -26,7 +26,7 @@ Your board runs in your own free Cloudflare account. Your family's data stays th
    - starter chores, picked by age
    - each kid's avatar
    - a grown-up PIN and your sign-in
-5. On the kitchen tablet, sign in and tick "This device is the shared family screen". Then add it to the home screen. On an iPad, that's Share, then Add to Home Screen.
+5. On the kitchen tablet, tap **Get a pairing code**. On your phone, open `YOUR-BOARD.workers.dev/link` and type the code. The tablet opens the board and stays signed in. (You can also sign in on the tablet and tick "This is our family's kitchen display".) Then add it to the home screen. On an iPad, that's Share, then Add to Home Screen.
 6. Invite the other grown-ups from **Parents → Sign-in and devices**.
 
 You can change anything later in **Parents**, or walk through the steps again with **Parents → Settings → Run setup again**.
@@ -38,6 +38,17 @@ Password sign-in works out of the box. To add a "Continue with Google" button:
 1. Create an OAuth client of type "Web application" in Google Cloud Console.
 2. Add `https://YOUR-BOARD.workers.dev/auth/google/callback` as an authorized redirect URI.
 3. Run `node scripts/setup-google.mjs` and paste the client ID and secret.
+
+## Optional: Host boards for other families
+
+One copy can hold many families, each with its own private board. This is off unless you turn it on. Without it, your copy is just for your family.
+
+Set two settings in Cloudflare (Workers & Pages → your board → Settings → Variables and Secrets):
+
+- **SITE_NAME**: the name people see on the sign-in page, like `Our Town Boards`. With it set, the sign-in page never shows any family's name.
+- **SIGNUP_CODES**: one or more invite codes, separated by commas, like `SPRING-25, NEIGHBORS`. A **Create your family's board** link appears on the sign-in page, and a new family needs one of these codes to sign up. Remove the setting to close sign-up again.
+
+Each new family gets its own setup steps, its own PIN and its own kitchen screen pairing. No family can see another's calendar, chores, photos or settings.
 
 ## Costs
 
