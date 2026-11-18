@@ -133,23 +133,43 @@ function Feedback({ b, cfg, update }) {
     ${!list ? 'loading…' : !list.length ? html`<div class="trow">Nothing yet.</div>` : list.map((f) => html`<div class="trow" style=${f.status === 'done' ? { opacity: .55 } : {}}><span style="flex:1;min-width:200px"><b>${f.from_who || 'Someone'}</b> · <small style="color:#6b7280">${f.created_at.slice(0, 10)}${f.page ? ' · ' + f.page : ''}</small><br/>${f.text}${f.issue_url ? html` <a target="_blank" href=${f.issue_url}>issue ↗</a>` : ''}</span>${f.status === 'done' ? html`<button class="pill sm lite" onClick=${() => mark(f, 'new')}>Reopen</button>` : html`<button class="pill sm" onClick=${() => mark(f, 'done')}>Done</button>`}</div>`)}`;
 }
 function GrantForm({ b, pin, refresh }) { const [kid, setKid] = useState(b.kids[0].id); const [stars, setStars] = useState(1); const [note, setNote] = useState(''); return html`<div class="trow"><${Who} v=${kid} set=${setKid} kids=${b.kids} extra=${false} /><${Step} v=${stars} set=${setStars} min=${1} /><input class="nm" placeholder="for what?" value=${note} onInput=${(e) => setNote(e.target.value)} /><button class="pill sm" onClick=${async () => { await api('/api/admin/grant', { kid, stars, note }, pin); setNote(''); chime('win'); toast('Stars given'); refresh(); }}>Give ★</button></div>`; }
-function TaskRow({ t, kids, update, list, idx, showWhen }) {
-  const set = (fn) => update((c) => { fn(c[list][idx]); }); const isEither = t.who === 'either';
-  return html`<div class="trow taskrow"><input class="emi" value=${t.emoji || ''} onInput=${(e) => set((x) => x.emoji = e.target.value)} /><input class="nm" value=${t.title} onInput=${(e) => set((x) => x.title = e.target.value)} />
-    <${Who} v=${t.who} set=${(v) => set((x) => x.who = v)} kids=${kids} />${isEither ? html`<label style="font-size:11px;display:flex;align-items:center;gap:4px"><input type="checkbox" checked=${!!t.rotate} onChange=${(e) => set((x) => x.rotate = e.target.checked)} />take turns</label>` : ''}
-    ${showWhen ? html`<div class="who"><button class=${t.when === 'morning' ? 'on' : ''} onClick=${() => set((x) => x.when = 'morning')}>Before school</button><button class=${t.when !== 'morning' ? 'on' : ''} onClick=${() => set((x) => x.when = 'after')}>After</button></div>` : ''}
-    <div class="dow">${DL.map((l, i) => html`<button class=${(t.days || []).includes(DI[i]) ? 'on' : ''} onClick=${() => set((x) => { const s = new Set(x.days || []); s.has(DI[i]) ? s.delete(DI[i]) : s.add(DI[i]); x.days = [...s]; })}>${l}</button>`)}</div>
-    <${Step} v=${t.stars} set=${(v) => set((x) => x.stars = v)} />${t.timerMin ? html`<label style="font-size:11px">⏱ <input type="number" min="0" max="90" style="width:46px;border:0;border-radius:8px;padding:4px" value=${t.timerMin} onInput=${(e) => set((x) => x.timerMin = +e.target.value)} /> min</label>` : html`<button class="addtimer" onClick=${() => set((x) => x.timerMin = 10)}>⏱ add timer</button>`}
-    <button class="x" onClick=${() => confirm('Delete this task?') && update((c) => c[list].splice(idx, 1))}>×</button></div>`;
+// Plain-words summary of a chore's settings, e.g. "Take turns · Weekdays".
+const DAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+function daysText(days = []) {
+  const d = [...new Set(days)].sort((a, c) => ((a + 6) % 7) - ((c + 6) % 7)); const k = d.join();
+  if (d.length === 7) return 'Every day'; if (k === '1,2,3,4,5') return 'Weekdays'; if (k === '6,0') return 'Weekends'; if (!d.length) return 'No days picked';
+  return d.map((x) => DAYS_SHORT[x]).join(', ');
+}
+function whoText(t, kids) { if (t.who === 'both') return kids.length > 1 ? 'Each kid' : kids[0]?.name || 'Kid'; if (t.who === 'either') return t.rotate ? 'Take turns' : 'First one done'; return kids.find((k) => k.id === t.who)?.name || 'Nobody'; }
+// One line per chore; tap it to open a labeled editor.
+function TaskRow({ t, kids, update, list, idx, open, setOpen }) {
+  const set = (fn) => update((c) => { fn(c[list][idx]); }); const days = t.days || [];
+  const toggleDay = (d) => set((x) => { const s2 = new Set(x.days || []); s2.has(d) ? s2.delete(d) : s2.add(d); x.days = [...s2]; });
+  if (!open) return html`<button class="chore" onClick=${() => setOpen(t.id)}><span class="ce">${t.emoji || '✅'}</span><span class="ct"><b>${t.title || 'Untitled chore'}</b><small>${whoText(t, kids)} · ${daysText(days)} · ★ ${t.stars}${t.timerMin ? ` · ⏱ ${t.timerMin} min` : ''}</small></span><span class="cchev">›</span></button>`;
+  const opt = (on, label, fn, style) => html`<button class=${on ? 'on' : ''} style=${on && style ? style : {}} onClick=${fn}>${label}</button>`;
+  return html`<div class="chore open">
+    <div class="crow"><input class="emi" value=${t.emoji || ''} onInput=${(e) => set((x) => x.emoji = e.target.value)} /><input class="nm" ref=${(el) => { if (el && !t.title && document.activeElement !== el) setTimeout(() => el.focus(), 30); }} placeholder="Name the chore, like Feed the cat" value=${t.title} onInput=${(e) => set((x) => x.title = e.target.value)} /></div>
+    ${kids.length > 1 ? html`<div class="cf"><label>Who does it</label><div class="chips">${opt(t.who === 'both', 'Each kid', () => set((x) => x.who = 'both'))}${opt(t.who === 'either', 'One kid', () => set((x) => { x.who = 'either'; if (x.rotate === undefined) x.rotate = true; }))}${kids.map((k) => opt(t.who === k.id, k.name, () => set((x) => x.who = k.id), { background: k.color, color: '#fff' }))}</div>
+      ${t.who === 'either' ? html`<div class="chips">${opt(!!t.rotate, 'Take turns', () => set((x) => x.rotate = true))}${opt(!t.rotate, 'First one done gets the stars', () => set((x) => x.rotate = false))}</div>` : ''}</div>` : ''}
+    <div class="cf"><label>When</label><div class="chips">${opt(t.when === 'morning', '☀️ Before school', () => set((x) => x.when = 'morning'))}${opt(t.when !== 'morning', '🏡 After school', () => set((x) => x.when = 'after'))}</div>${t.when === 'morning' ? html`<small class="chint">Before-school chores only show on school days.</small>` : ''}</div>
+    <div class="cf"><label>Days</label><div class="chips">${[1, 2, 3, 4, 5, 6, 0].map((d) => opt(days.includes(d), DAYS_SHORT[d], () => toggleDay(d)))}</div>
+      <div class="chips quick">${opt(false, 'Weekdays', () => set((x) => x.days = [1, 2, 3, 4, 5]))}${opt(false, 'Every day', () => set((x) => x.days = [0, 1, 2, 3, 4, 5, 6]))}${opt(false, 'Weekends', () => set((x) => x.days = [6, 0]))}</div></div>
+    <div class="cf two"><div><label>Stars</label><${Step} v=${t.stars} set=${(v) => set((x) => x.stars = v)} min=${1} /></div>
+      <div><label>Timer</label>${t.timerMin ? html`<span class="step"><button onClick=${() => set((x) => x.timerMin = Math.max(0, (x.timerMin || 0) - 5))}>−</button>⏱ ${t.timerMin} min<button onClick=${() => set((x) => x.timerMin = Math.min(90, (x.timerMin || 0) + 5))}>+</button></span>` : html`<button class="addtimer" onClick=${() => set((x) => x.timerMin = 10)}>⏱ Add a timer</button>`}</div></div>
+    <div class="cfoot"><button class="cdel" onClick=${() => { if (confirm(`Delete “${t.title || 'this chore'}”?`)) { update((c) => c[list].splice(idx, 1)); setOpen(null); } }}>Delete</button><button class="pill" onClick=${() => setOpen(null)}>Done</button></div>
+  </div>`;
 }
 function Tasks({ b, cfg, update }) {
-  const [filter, setFilter] = useState('all'); const kids = cfg.kids; const rows = cfg.tasks.map((t, idx) => ({ t, idx })).filter(({ t }) => filter === 'all' || t.who === filter || t.who === 'both' || t.who === 'either');
-  const add = (when) => update((c) => c.tasks.push({ id: 't' + uid(), title: 'New task', emoji: '✅', who: 'both', when, days: [1, 2, 3, 4, 5], stars: 1 }));
-  return html`<div style="display:flex;align-items:center;gap:10px"><h3>Daily tasks</h3><div class="seg" style="margin-left:auto"><button class=${filter === 'all' ? 'on' : ''} onClick=${() => setFilter('all')}>All</button>${kids.map((k) => html`<button class=${filter === k.id ? 'on' : ''} onClick=${() => setFilter(k.id)}>${k.name}</button>`)}</div></div>
-    <p style="font-size:12px;color:#6b7280;font-weight:700;margin:4px 0 0"><b>Both</b>: each kid gets their own copy. <b>Either</b>: one shared job, first to finish earns it; "take turns" alternates whose day it is. Before-school tasks only appear on school days.</p>
-    <div class="sub">Before school</div>${rows.filter(({ t }) => t.when === 'morning').map(({ t, idx }) => html`<${TaskRow} key=${t.id} t=${t} idx=${idx} list="tasks" kids=${kids} update=${update} />`)}<button class="addrow" onClick=${() => add('morning')}>＋ Add a before-school task</button>
-    <div class="sub">After school and weekends</div>${rows.filter(({ t }) => t.when !== 'morning').map(({ t, idx }) => html`<${TaskRow} key=${t.id} t=${t} idx=${idx} list="tasks" kids=${kids} update=${update} />`)}<button class="addrow" onClick=${() => add('after')}>＋ Add an after-school task</button>`;
+  const [filter, setFilter] = useState('all'); const [open, setOpen] = useState(null); const kids = cfg.kids;
+  const rows = cfg.tasks.map((t, idx) => ({ t, idx })).filter(({ t }) => filter === 'all' || t.who === filter || t.who === 'both' || t.who === 'either');
+  const add = (when) => { const id = 't' + uid(); update((c) => c.tasks.push({ id, title: '', emoji: '✅', who: kids.length > 1 ? 'both' : kids[0].id, when, days: [1, 2, 3, 4, 5], stars: 1 })); setOpen(id); };
+  const list = (when) => rows.filter(({ t }) => (when === 'morning') === (t.when === 'morning')).map(({ t, idx }) => html`<${TaskRow} key=${t.id} t=${t} idx=${idx} list="tasks" kids=${kids} update=${update} open=${open === t.id} setOpen=${setOpen} />`);
+  return html`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3>Daily chores</h3>${kids.length > 1 ? html`<div class="seg" style="margin-left:auto"><button class=${filter === 'all' ? 'on' : ''} onClick=${() => setFilter('all')}>All</button>${kids.map((k) => html`<button class=${filter === k.id ? 'on' : ''} onClick=${() => setFilter(k.id)}>${k.name}</button>`)}</div>` : ''}</div>
+    <p class="chint" style="margin:4px 0 0">Tap a chore to change it. Each one earns stars toward the weekly allowance.</p>
+    <div class="sub">☀️ Before school</div>${list('morning')}<button class="addrow" onClick=${() => add('morning')}>＋ Add a before-school chore</button>
+    <div class="sub">🏡 After school and weekends</div>${list('after')}<button class="addrow" onClick=${() => add('after')}>＋ Add an after-school chore</button>`;
 }
+
 function Todos({ b, refresh, pin }) {
   const [title, setTitle] = useState(''); const [kid, setKid] = useState('both'); const [date, setDate] = useState(b.today); const [note, setNote] = useState(''); const [from, setFrom] = useState('Mama');
   return html`<h3>One-time to-dos</h3><div class="trow"><input class="nm" placeholder="Return library book" value=${title} onInput=${(e) => setTitle(e.target.value)} /><${Who} v=${kid} set=${setKid} kids=${b.kids} extra=${false} /><button class=${'pill sm ' + (kid === 'both' ? '' : 'lite')} onClick=${() => setKid('both')}>Both</button><input type="date" value=${date} onInput=${(e) => setDate(e.target.value)} style="border:0;border-radius:8px;padding:6px" /><button class="pill sm" onClick=${async () => { if (!title) return; await api('/api/todo', { title, kid: kid === 'both' ? null : kid, date }); setTitle(''); refresh(); toast('Added'); }}>Add</button></div>
