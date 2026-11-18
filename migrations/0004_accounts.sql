@@ -1,0 +1,16 @@
+CREATE TABLE IF NOT EXISTS households (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, household_id INTEGER NOT NULL DEFAULT 1,
+  email TEXT NOT NULL UNIQUE, name TEXT NOT NULL, person_id TEXT,
+  pw_hash TEXT, pw_salt TEXT, pw_iter INTEGER, created_at TEXT NOT NULL, last_login TEXT
+);
+CREATE TABLE IF NOT EXISTS sessions (
+  id TEXT PRIMARY KEY, household_id INTEGER NOT NULL DEFAULT 1, user_id INTEGER, kind TEXT NOT NULL,
+  label TEXT, created_at TEXT NOT NULL, last_seen TEXT NOT NULL, expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
+CREATE TABLE IF NOT EXISTS invites (
+  id TEXT PRIMARY KEY, household_id INTEGER NOT NULL DEFAULT 1, user_id INTEGER NOT NULL,
+  created_at TEXT NOT NULL, expires_at TEXT NOT NULL, used_at TEXT
+);
+CREATE TABLE IF NOT EXISTS ratelimit (key TEXT PRIMARY KEY, n INTEGER NOT NULL, reset_at INTEGER NOT NULL);

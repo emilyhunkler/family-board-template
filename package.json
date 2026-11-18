@@ -1,0 +1,16 @@
+{
+  "name": "family-board",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A cheerful kitchen-tablet family board: shared calendar, kids routines and chores, stars and allowance, groceries, meals and voice.",
+  "scripts": {
+    "dev": "wrangler dev --port 8788",
+    "deploy": "wrangler d1 migrations apply DB --remote && wrangler deploy",
+    "db:local": "wrangler d1 migrations apply DB --local",
+    "test": "node --test test/*.test.js"
+  },
+  "devDependencies": {
+    "wrangler": "^4"
+  }
+}
