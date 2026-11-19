@@ -362,12 +362,12 @@ function FeedbackSheet({ b, page, onClose }) {
   useEffect(() => micOff, []); // closing the sheet always turns the mic off
   const send = async () => { if (!text.trim()) return; micOff(); try { const r = await api('/api/feedback', { text: text.trim(), from: who, page }); localStorage.setItem('fb-who', who); chime('win'); setSent(r.issueUrl || true); } catch (e) { toast(e.message); } };
   return html`<div class="ov" onClick=${onClose}><div class="sheet" style="width:560px" onClick=${(e) => e.stopPropagation()}><button class="close" onClick=${onClose}>×</button>
-    ${sent ? html`<h3>💛 Thanks!</h3><p style="font-weight:800;color:var(--ink2)">Your note is saved in Parents → Feedback${sent !== true ? html` and filed as <a target="_blank" href=${sent}>a GitHub issue</a>` : ''}.</p><div class="btns"><button class="pill" onClick=${onClose}>Done</button></div>` : html`
+    ${sent ? html`<h3>💛 Thank you!</h3><p style="font-weight:800;color:var(--ink2)">We got it. Ideas like yours make the board better for every family.${sent !== true ? html` <a target="_blank" href=${sent}>See your idea</a>` : ''}</p><div class="btns"><button class="pill" onClick=${onClose}>Done</button></div>` : html`
     <h3>💬 Feedback</h3><p style="font-weight:800;color:var(--muted);margin:4px 0 10px">Something confusing, broken, or an idea? Say it or type it.</p>
     <div class="chips" style="margin:0 0 10px">${people.map((n) => html`<button class=${who === n ? 'on' : ''} style=${who === n ? { background: '#1f3a5f', color: '#fff' } : {}} onClick=${() => setWho(n)}>${n}</button>`)}</div>
     <textarea class="gbox" rows="4" style="resize:vertical;min-height:110px" value=${text} onInput=${(e) => setText(e.target.value)} placeholder=${rec ? 'Listening… talk now' : 'The week view should also show…'}></textarea>
     <div class="btns"><button class=${'pill ' + (rec ? 'danger' : 'sun')} onClick=${talk}>${rec ? '⏹ Stop' : '🎙 Talk instead'}</button><button class="pill" disabled=${!text.trim()} onClick=${send}>Send</button></div>
-    ${b.feedbackPublic ? html`<p style="font-size:12px;color:var(--ink2);font-weight:800;margin-top:10px">🌐 Feedback is posted publicly on GitHub so it can be tracked. Names on your board are removed first. Please don't include anything private.</p>` : ''}
+    ${b.feedbackPublic ? html`<p style="font-size:12px;color:var(--ink2);font-weight:800;margin-top:10px">🌐 Ideas go on a public list so we can keep track of them. Names from your board are taken out first, but please leave out anything private.</p>` : ''}
     <p style="font-size:12px;color:var(--muted);font-weight:700;margin-top:10px">Tip: on the tablet say "Hey calendar, feedback" to open this with the mic already on.</p>`}</div></div>`;
 }
 // ---------- ambient and sleep ----------
