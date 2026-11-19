@@ -20,7 +20,7 @@ export function signupPage({ site, google, msg = '', v = {} }) {
   <label for="e">Email</label><input id="e" name="email" type="email" autocomplete="username" value="${f('email')}">
   <label for="p">Password</label><input id="p" name="password" type="password" autocomplete="new-password" minlength="10" placeholder="At least 10 characters">
   <button name="method" value="password">Create our board</button>${google ? '</details>' : ''}</form>
-  <p class="more"><a href="/">Already have a board? Sign in</a></p>
+  <p style="margin-top:12px">By creating a board you agree to how we handle your family's information, explained on the <a href="/privacy">privacy page</a>.</p><p class="more"><a href="/">Already have a board? Sign in</a></p>
   <script>try{document.getElementById('z').value||(document.getElementById('z').value=Intl.DateTimeFormat().resolvedOptions().timeZone)}catch(e){}</script>`, msg ? 400 : 200);
 }
 

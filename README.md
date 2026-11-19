@@ -50,6 +50,14 @@ Set two settings in Cloudflare (Workers & Pages → your board → Settings → 
 
 Each new family gets its own setup steps, its own PIN and its own kitchen screen pairing. No family can see another's calendar, chores, photos or settings.
 
+A few more optional settings for a shared site:
+
+- **OWNER_EMAILS**: your own sign-in email. You get a **Site overview** page at `/owner` showing how many families joined and how active they are, never what's on their boards.
+- **CONTACT_EMAIL**: the address shown on the privacy page (`/privacy`) for questions and removal requests.
+- **FEEDBACK_REPO** and **GITHUB_TOKEN**: a public GitHub repo like `you/your-repo`, and a fine-grained token that can only write that repo's issues. Each family's in-app feedback becomes an issue there, with the names on their board, emails and phone numbers removed, and the feedback box tells them it's public.
+
+Every family can download all its data or delete its board from `/account`.
+
 ## Costs
 
 It fits in Cloudflare's free plan for a family. The natural-sounding voice uses Workers AI, which has a free daily allowance.

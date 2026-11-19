@@ -1,12 +1,13 @@
 // First-run setup: walks a new family from a blank board to their own people, calendar, weather and chores.
 // Also runs again from Parents → Settings. It edits the same config the Parents screen edits, and saves after every step.
 import { useState, useEffect } from 'https://cdn.jsdelivr.net/npm/preact@11.2.0/hooks/+esm';
-import { html, api, put, toast, chime, confetti, Avatar } from './app.js';
+import { html, api, put, toast, chime, confetti, Avatar, SKINS } from './app.js';
 
 const COLORS = ['#ff7a90', '#5aa9ff', '#ffc857', '#7fd6b0', '#c3a6ff', '#ff9f5a', '#4cc9c0', '#f28ad8'];
-const HAIR = [['long16', 'Braid'], ['long15', 'Pigtails'], ['long05', 'Bob'], ['long07', 'Bangs'], ['long24', 'Curly'], ['long13', 'Buns'], ['long23', 'Top bun'], ['short01', 'Short'], ['short04', 'Spiky'], ['short09', 'Swoop'], ['short13', 'Tousled'], ['short19', 'Buzz']];
-const HAIR_COLORS = [['0e0e0e', 'Black'], ['562306', 'Dark brown'], ['6a4e35', 'Brown'], ['97804f', 'Dirty blonde'], ['e5d7a3', 'Blonde'], ['ab2a18', 'Red']];
-const SKIN = ['f2d3b1', 'ecad80', '9e5622', '763900'];
+// Every hairstyle in the avatar set, short ones first.
+const HAIR = [...Array.from({ length: 19 }, (_, i) => 'short' + String(i + 1).padStart(2, '0')), ...Array.from({ length: 26 }, (_, i) => 'long' + String(i + 1).padStart(2, '0'))];
+const STARTER_HAIR = ['short01', 'long16', 'short09', 'long05', 'short04', 'long15'];
+const HAIR_COLORS = [['0e0e0e', 'Black'], ['562306', 'Dark brown'], ['6a4e35', 'Brown'], ['796a45', 'Light brown'], ['97804f', 'Dirty blonde'], ['b9a05f', 'Golden'], ['e5d7a3', 'Blonde'], ['ac6511', 'Auburn'], ['cb6820', 'Ginger'], ['ab2a18', 'Red']];
 const PETS = [['', 'No pet'], ['dog', '🐶 Dog'], ['cat', '🐱 Cat'], ['bunny', '🐰 Bunny'], ['fish', '🐠 Fish'], ['bird', '🐦 Bird'], ['hamster', '🐹 Hamster'], ['other', '🐾 Other']];
 const WEEKDAYS = [1, 2, 3, 4, 5]; const EVERY = [0, 1, 2, 3, 4, 5, 6];
 // Starter chores. minAge is a gentle hint; families can tick anything.
@@ -79,7 +80,7 @@ function Kids({ c, edit }) {
         <label>Out the door <input type="time" value=${k.leaveTime} onInput=${(e) => edit((n) => { n.kids[i].leaveTime = e.target.value; })} /></label>
         <label>Allowance $<input type="number" min="0" step="0.5" value=${k.weeklyAllowance} onInput=${(e) => edit((n) => { n.kids[i].weeklyAllowance = +e.target.value || 0; })} />/wk</label></div></div>
       ${c.kids.length > 1 ? html`<button class="pill ghost sm" onClick=${() => edit((n) => { n.kids.splice(i, 1); })}>Remove</button>` : ''}</div>`)}
-    ${c.kids.length < 6 ? html`<button class="pill lite" onClick=${() => edit((n) => { const id = slug('kid' + (n.kids.length + 1), n.kids.map((x) => x.id)); n.kids.push({ id, name: '', color: COLORS[n.kids.length % COLORS.length], age: 8, leaveTime: n.kids[0]?.leaveTime || '07:45', weeklyAllowance: n.kids[0]?.weeklyAllowance ?? 5, morningStart: '06:30', avatar: { hair: HAIR[n.kids.length % HAIR.length][0], hairColor: '6a4e35', skinColor: 'f2d3b1', eyes: 'variant26', mouth: 'variant26' } }); })}>+ Add a kid</button>` : ''}`;
+    ${c.kids.length < 6 ? html`<button class="pill lite" onClick=${() => edit((n) => { const id = slug('kid' + (n.kids.length + 1), n.kids.map((x) => x.id)); n.kids.push({ id, name: '', color: COLORS[n.kids.length % COLORS.length], age: 8, leaveTime: n.kids[0]?.leaveTime || '07:45', weeklyAllowance: n.kids[0]?.weeklyAllowance ?? 5, morningStart: '06:30', avatar: { hair: STARTER_HAIR[n.kids.length % STARTER_HAIR.length], hairColor: '6a4e35', skinColor: 'f2d3b1', eyes: 'variant26', mouth: 'variant26' } }); })}>+ Add a kid</button>` : ''}`;
 }
 
 function Pet({ c, edit }) {
@@ -133,13 +134,13 @@ function Looks({ c, edit }) {
   const [i, setI] = useState(0); const k = c.kids[Math.min(i, c.kids.length - 1)]; const ki = c.kids.indexOf(k);
   const setLook = (key, v) => edit((n) => { n.kids[ki].avatar = { ...(n.kids[ki].avatar || {}), [key]: v }; });
   const a = k.avatar || {};
-  return html`<h2>Make your avatar</h2><p class="wizp">Hand the tablet to each kid. They can unlock more outfits later with stars.</p>
+  return html`<h2>Make your avatar</h2><p class="wizp">Hand the tablet to each kid. Every hairstyle and face is free to change any time; stars unlock pets, backgrounds and extras.</p>
     ${c.kids.length > 1 ? html`<div class="chips big">${c.kids.map((x, j) => html`<button class=${j === ki ? 'on' : ''} onClick=${() => setI(j)}>${x.name}</button>`)}</div>` : ''}
     <div class="wizlook"><${Avatar} kid=${k} size="150px" /><div class="wizcol">
-      <label>Hair</label><div class="chips">${HAIR.map(([v, l]) => html`<button class=${a.hair === v ? 'on' : ''} onClick=${() => setLook('hair', v)}>${l}</button>`)}</div>
+      <label>Hair</label><div class="hairpick">${HAIR.map((v) => html`<button class=${a.hair === v ? 'on' : ''} aria-label=${v} onClick=${() => setLook('hair', v)}><${Avatar} look=${{ ...a, hair: v }} size="100%" /></button>`)}</div>
       <label>Hair color</label><div class="chips">${HAIR_COLORS.map(([v, l]) => html`<button class=${a.hairColor === v ? 'on' : ''} onClick=${() => setLook('hairColor', v)}><i class="sw" style=${{ background: '#' + v }}></i>${l}</button>`)}</div>
-      <label>Skin</label><div class="chips">${SKIN.map((v) => html`<button class=${a.skinColor === v ? 'on' : ''} onClick=${() => setLook('skinColor', v)}><i class="sw" style=${{ background: '#' + v }}></i></button>`)}</div>
-      <button class="pill ghost sm" style="align-self:flex-start;margin-top:8px" onClick=${() => { const r = (l) => l[Math.random() * l.length | 0]; setLook('eyes', 'variant' + String(1 + (Math.random() * 26 | 0)).padStart(2, '0')); setLook('mouth', 'variant' + String(1 + (Math.random() * 30 | 0)).padStart(2, '0')); }}>🎲 New face</button></div></div>`;
+      <label>Skin</label><div class="chips">${SKINS.map((v) => html`<button class=${a.skinColor === v ? 'on' : ''} onClick=${() => setLook('skinColor', v)}><i class="sw" style=${{ background: '#' + v }}></i></button>`)}</div>
+      <button class="pill ghost sm" style="align-self:flex-start;margin-top:8px" onClick=${() => { const r = (l) => l[Math.random() * l.length | 0]; setLook('eyes', 'variant' + String(1 + (Math.random() * 26 | 0)).padStart(2, '0')); setLook('mouth', 'variant' + String(1 + (Math.random() * 30 | 0)).padStart(2, '0')); setLook('eyebrows', 'variant' + String(1 + (Math.random() * 15 | 0)).padStart(2, '0')); }}>🎲 New face</button></div></div>`;
 }
 
 function Finish({ c, edit, b, pin, rerun, save, onDone, setBusy, back }) {

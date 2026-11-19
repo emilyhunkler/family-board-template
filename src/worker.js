@@ -1,4 +1,5 @@
 import defaults from './config.default.js';
+import { upgradeWardrobe } from './lib/wardrobe.js';
 import { parseICS, expandEvents, ymd, addDaysYmd, parts, zoned } from './lib/ical.js';
 import * as P from './lib/points.js';
 import * as H from './lib/helpers.js';
@@ -6,6 +7,7 @@ import { interpret } from './lib/voice.js';
 import { makeVapid, sendPush } from './lib/push.js';
 import * as A from './lib/auth.js';
 import * as O from './lib/onboard.js';
+import * as AC from './lib/account.js';
 
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
 const err = (msg, status = 400, extra = {}) => json({ error: msg, ...extra }, status);
@@ -24,6 +26,7 @@ async function getConfig(env) {
   for (const k of Object.keys(defaults)) if (c[k] === undefined) c[k] = structuredClone(defaults[k]);
   // One-time upgrades for boards saved before a setting existed.
   if (!c.family.groupWords) { c.family.groupWords = [...defaults.family.groupWords]; await saveConfig(env, c); }
+  if (upgradeWardrobe(c)) await saveConfig(env, c);
   return c;
 }
 async function saveConfig(env, cfg) { await env.DB.prepare('INSERT INTO settings(key,value,updated_at,household_id) VALUES(?,?,?,?) ON CONFLICT(household_id,key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at').bind('config', JSON.stringify(cfg), nowIso(), env.HID).run(); }
@@ -235,6 +238,8 @@ const ipOf = (req) => req.headers.get('cf-connecting-ip') || 'local';
 // A shared site (SITE_NAME set) never shows one family's name to someone who isn't signed in.
 const siteName = (env, cfg) => env.SITE_NAME || cfg.family?.name || 'Family Board';
 const signupCodes = (env) => String(env.SIGNUP_CODES || '').split(',').map((x) => x.trim().toUpperCase()).filter(Boolean);
+const isOwner = (env, session) => !!session?.user_email && String(env.OWNER_EMAILS || '').toLowerCase().split(',').map((x) => x.trim()).filter(Boolean).includes(String(session.user_email).toLowerCase());
+const PRIVACY_UPDATED = 'November 18, 2026';
 const validZone = (z) => { try { new Intl.DateTimeFormat('en-US', { timeZone: z }); return !!z; } catch { return false; } };
 const withCookies = (res, ...cookies) => { const h = new Headers(res.headers); for (const c of cookies) h.append('set-cookie', c); return new Response(res.body, { status: res.status, headers: h }); };
 
@@ -364,6 +369,47 @@ async function authRoute(env, req, path, cfg, userCount, session) {
     await env.DB.prepare('UPDATE pairings SET household_id=?, claimed_by=? WHERE id=? AND household_id IS NULL').bind(env.HID, session.user_id, row.id).run();
     return O.linkPage({ ok: 'The kitchen screen will open the board in a few seconds.' });
   }
+  // ----- privacy, a family's own data, and the owner's overview -----
+  if (path === '/privacy') return AC.privacyPage({ site: name, contact: env.CONTACT_EMAIL || '', updated: PRIVACY_UPDATED });
+  if (path === '/account' || path === '/account/export' || path === '/account/delete') {
+    if (!session) return redirect('/');
+    if (session.kind !== 'parent') return A.simplePage('Use a grown-up\'s phone', 'Open this page on a phone or computer signed in as a grown-up, not on the kitchen screen.');
+    const family = cfg.family?.name || 'Our board';
+    if (path === '/account') return AC.accountPage({ site: name, family, isOwner: isOwner(env, session) });
+    if (path === '/account/export') {
+      const out = { exported_at: nowIso(), site: name, family };
+      for (const t of AC.FAMILY_TABLES) {
+        if (['cache', 'invites', 'pairings'].includes(t)) continue;
+        const rows = (await env.DB.prepare(`SELECT * FROM ${t} WHERE household_id=?`).bind(env.HID).all()).results;
+        out[t] = t === 'users' ? rows.map((u) => ({ email: u.email, name: u.name, person: u.person_id, created_at: u.created_at, last_login: u.last_login }))
+          : t === 'sessions' ? rows.map((x) => ({ kind: x.kind, device: x.label, created_at: x.created_at, last_seen: x.last_seen }))
+          : t === 'push_subs' ? rows.map((x) => ({ who: x.who, notifications: x.prefs, created_at: x.created_at }))
+          : t === 'settings' ? rows.filter((x) => !AC.SECRET_SETTINGS.has(x.key)).map((x) => { let v; try { v = JSON.parse(x.value); } catch { v = x.value; } if (x.key === 'config' && v) delete v.pin; return { key: x.key, value: v }; })
+          : rows.map(({ household_id, ...r }) => r);
+      }
+      return new Response(JSON.stringify(out, null, 1), { headers: { 'content-type': 'application/json; charset=utf-8', 'content-disposition': `attachment; filename="board-export-${nowIso().slice(0, 10)}.json"`, 'cache-control': 'no-store' } });
+    }
+    if (req.method !== 'POST') return redirect('/account');
+    const f = await formOf(req);
+    if (String(f.name || '').trim() !== family.trim()) return AC.accountPage({ site: name, family, isOwner: isOwner(env, session), msg: "The name didn't match, so nothing was deleted." });
+    for (const t of AC.FAMILY_TABLES) await env.DB.prepare(`DELETE FROM ${t} WHERE household_id=?`).bind(env.HID).run();
+    await env.DB.prepare('DELETE FROM households WHERE id=?').bind(env.HID).run();
+    return withCookies(AC.deletedPage(name), A.clearCookie());
+  }
+  if (path === '/owner') {
+    if (!isOwner(env, session)) return A.simplePage('Not available', 'This page is only for the person who runs the site.');
+    const families = (await env.DB.prepare(`SELECT h.id, h.name, h.created_at,
+      (SELECT COUNT(*) FROM users u WHERE u.household_id = h.id AND u.pw_hash IS NOT NULL) AS grownups,
+      (SELECT COUNT(*) FROM sessions s WHERE s.household_id = h.id AND s.expires_at > ?) AS devices,
+      (SELECT MAX(s.last_seen) FROM sessions s WHERE s.household_id = h.id) AS last_seen,
+      (SELECT COUNT(*) FROM checks c WHERE c.household_id = h.id) AS checks,
+      (SELECT COUNT(*) FROM photos p WHERE p.household_id = h.id) AS photos,
+      (SELECT COALESCE(SUM(LENGTH(p.data)), 0) FROM photos p WHERE p.household_id = h.id) AS photo_bytes
+      FROM households h /* all-families: the owner's overview counts each family, never its contents */ ORDER BY h.id`).bind(nowIso()).all()).results;
+    const totals = families.reduce((t, x) => ({ grownups: t.grownups + x.grownups, devices: t.devices + x.devices, photo_bytes: t.photo_bytes + x.photo_bytes }), { grownups: 0, devices: 0, photo_bytes: 0 });
+    const feedback = (await env.DB.prepare('SELECT household_id, text, created_at, issue_url FROM feedback /* all-families: feedback sent to the owner */ ORDER BY id DESC LIMIT 30').all()).results;
+    return AC.ownerPage({ site: name, families, totals, feedback, signupOpen: signupCodes(env).length > 0 });
+  }
   if (path === '/auth/signout') { const tok = cookieOf(req, 'fbs'); if (tok && /^[0-9a-f]{64}$/.test(tok)) await env.DB.prepare('DELETE FROM sessions /* all-families: by secret token */ WHERE id=?').bind(await A.sha256hex(tok)).run(); return redirect('/', A.clearCookie()); }
   return null;
 }
@@ -427,7 +473,7 @@ export default {
     const session = userCount ? await A.readSession(env, req) : null;
     // From here on every lookup is for one family: the signed-in device's, or family 1 before sign-in exists.
     env = { ...env, HID: session?.household_id || 1 };
-    if (path.startsWith('/auth/') || path === '/link') { const r = await authRoute(env, req, path, await getConfig(env), userCount, session); if (r) return r; }
+    if (path.startsWith('/auth/') || ['/link', '/privacy', '/account', '/account/export', '/account/delete', '/owner'].includes(path)) { const r = await authRoute(env, req, path, await getConfig(env), userCount, session); if (r) return r; }
     if (path === '/api/login' && req.method === 'POST') {
       if (userCount) return redirect('/');
       const f = await formOf(req); const code = (f.code || '').trim(); const ip = ipOf(req); const wait = await A.check(env, 'code:' + ip, 10); if (wait) return A.legacyCodePage(`Too many tries. Wait ${wait} minutes.`, !!env.SETUP_CODE);
@@ -436,7 +482,8 @@ export default {
       await A.fail(env, 'code:' + ip, 60 * 60); return A.legacyCodePage('That code is not right.', !!env.SETUP_CODE);
     }
     const openPaths = ['/icon.svg', '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png', '/apple-touch-icon-precomposed.png', '/manifest.webmanifest', '/api/health'];
-    const local = url.hostname.startsWith('localhost') || url.hostname === '127.0.0.1';
+    // LOCAL_DEV is only ever set by `wrangler dev` (see .claude/launch.json): with custom-domain routes, dev requests carry the real domain as their host.
+    const local = url.hostname.startsWith('localhost') || url.hostname === '127.0.0.1' || env.LOCAL_DEV === '1';
     if (!openPaths.includes(path)) {
       if (userCount) { if (!session) return path.startsWith('/api/') ? json({ error: 'sign in', needLogin: true }, 401) : A.signInPage({ name: siteName(env, await getConfig(env)), google: A.googleOn(env), signup: signupCodes(env).length > 0 }); }
       else if (!local) { const g = await getGate(env); if (cookieOf(req, 'fb') !== g.hash) return path.startsWith('/api/') ? json({ error: 'sign in', needLogin: true }, 401) : A.legacyCodePage('', !!env.SETUP_CODE); }
@@ -447,7 +494,7 @@ export default {
       const zone = cfg.zone; const today = ymd(new Date(), zone);
       ADMIN.set(req, await decideAdmin(env, req, body, cfg, session, userCount));
       const admin = () => pinOk(req);
-      if (path === '/api/board') return json({ ...(await board(env, cfg, req, url)), start: (session?.kind === 'parent' || local) ? await startProgress(env, cfg) : null, me: session ? { kind: session.kind, name: session.user_name, personId: session.person_id } : null, auth: { enabled: !!userCount, local, google: A.googleOn(env) } });
+      if (path === '/api/board') return json({ ...(await board(env, cfg, req, url)), start: (session?.kind === 'parent' || local) ? await startProgress(env, cfg) : null, me: session ? { kind: session.kind, name: session.user_name, personId: session.person_id } : null, auth: { enabled: !!userCount, local, google: A.googleOn(env) }, feedbackPublic: !cfg.feedbackUrl && !!env.FEEDBACK_REPO && !!env.GITHUB_TOKEN });
       if (path === '/api/health') return json({ ok: true, time: nowIso() });
       if (path === '/api/version') return json({ version: env.CF_VERSION_METADATA?.id || 'dev' });
       if (path === '/api/reward/request' && method === 'POST') {
@@ -513,8 +560,13 @@ export default {
       if (path === '/api/units' && method === 'POST') { cfg.weather.units = body.units === 'celsius' ? 'celsius' : 'fahrenheit'; await saveConfig(env, cfg); return json({ ok: true, units: cfg.weather.units }); }
       if (path === '/api/feedback' && method === 'POST') {
         const text = String(body.text || '').trim(); if (!text) return err('say something first');
-        let issueUrl = null; const m = /github\.com\/([^/]+)\/([^/#?]+)/.exec(cfg.feedbackUrl || '');
-        if (m && env.GITHUB_TOKEN) { try { const r = await fetch(`https://api.github.com/repos/${m[1]}/${m[2].replace(/\.git$/, '')}/issues`, { method: 'POST', headers: { authorization: 'Bearer ' + env.GITHUB_TOKEN, 'content-type': 'application/json', 'user-agent': 'family-board', accept: 'application/vnd.github+json' }, body: JSON.stringify({ title: text.slice(0, 70) + (text.length > 70 ? '…' : ''), body: `${text}\n\n_From ${body.from || 'the board'} on page "${body.page || ''}"_`, labels: ['feedback'] }) }); if (r.ok) issueUrl = (await r.json()).html_url; } catch {} }
+        const wait = await A.check(env, 'fb:' + env.HID, 20); if (wait) return err(`That's a lot of feedback for one day. Try again in ${wait} minutes.`, 429); await A.fail(env, 'fb:' + env.HID, 24 * 60 * 60);
+        // A family that linked its own repo gets issues there, word for word. Otherwise feedback goes to the
+        // site's public repo (FEEDBACK_REPO) with the board's names removed and no family named.
+        let issueUrl = null; const own = /github\.com\/([^/]+)\/([^/#?]+)/.exec(cfg.feedbackUrl || ''); const pub = !own && /^[\w.-]+\/[\w.-]+$/.test(env.FEEDBACK_REPO || '');
+        const repo = own ? `${own[1]}/${own[2].replace(/\.git$/, '')}` : pub ? env.FEEDBACK_REPO : null;
+        const shown = pub ? AC.redact(text, cfg) : text; const from = pub ? `a family on ${env.SITE_NAME || 'a family board'}` : (body.from || 'the board');
+        if (repo && env.GITHUB_TOKEN) { try { const r = await fetch(`https://api.github.com/repos/${repo}/issues`, { method: 'POST', headers: { authorization: 'Bearer ' + env.GITHUB_TOKEN, 'content-type': 'application/json', 'user-agent': 'family-board', accept: 'application/vnd.github+json' }, body: JSON.stringify({ title: shown.slice(0, 70) + (shown.length > 70 ? '…' : ''), body: `${shown}\n\n_From ${from}${body.page ? ` on page "${String(body.page).slice(0, 40)}"` : ''}_`, labels: ['from feedback'] }) }); if (r.ok) issueUrl = (await r.json()).html_url; } catch {} }
         await env.DB.prepare('INSERT INTO feedback(text,from_who,page,created_at,issue_url,household_id) VALUES(?,?,?,?,?,?)').bind(text, body.from || null, body.page || null, nowIso(), issueUrl, env.HID).run();
         await log(env, 'feedback', null, `${body.from || 'Someone'}: ${text.slice(0, 80)}`); await notify(env, 'feedback', `Feedback from ${body.from || 'someone'}`, text.slice(0, 160)); return json({ ok: true, issueUrl });
       }

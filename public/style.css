@@ -95,7 +95,7 @@ h1,h2,h3,h4{font-family:var(--head);margin:0;line-height:1.1}
 .days i.full{background:#3b9a5f}.days i.part{background:var(--sun)}.days i.miss{background:#e7b3a6}.days i.open{background:var(--sky)}
 /* wardrobe */
 .ward{display:grid;grid-template-columns:380px 1fr;gap:18px}
-.stage{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:18px;background:linear-gradient(180deg,#fff6d6,#fff);position:sticky;top:0}
+.stage{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:18px;background:linear-gradient(180deg,#fff6d6,#fff);position:sticky;top:0;align-self:start;min-height:420px}
 .stage .av{width:260px;height:260px}
 .tabs{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
 .tabs button{padding:9px 16px;border-radius:999px;background:#fff;font-family:var(--head);font-weight:800;font-size:14px;color:var(--navy);box-shadow:0 2px 0 rgba(31,42,68,.06)}
@@ -454,3 +454,9 @@ button.bubble{display:block;text-align:left;font:inherit;font-weight:800;color:i
 .qdone{text-align:center;padding:10px 0}.qdone .big{font-size:72px}.qdone h3{font-size:30px;margin:6px 0}.qdone p{font-weight:700;font-size:17px}
 @media (max-width:600px){.qq{font-size:22px}.qch{grid-template-columns:1fr}.qch button{font-size:18px;min-height:56px}.qsubj button{font-size:17px;padding:14px 10px}.qsubj button span{font-size:32px}}
 .ptsub{display:block;color:var(--muted);font-weight:700;font-size:12px;margin-top:2px}
+
+/* wardrobe face close-ups and the setup hair picker */
+.zoomface{width:78px;height:78px;border-radius:50%;overflow:hidden;position:relative}.zoomface svg{position:absolute;width:190%!important;height:190%!important;max-width:none;left:-45%;top:-38%}.zoomface.low svg{top:-62%}
+.hairpick{display:grid;grid-template-columns:repeat(auto-fill,minmax(58px,1fr));gap:6px;margin-top:6px;max-height:260px;overflow-y:auto;padding:2px}
+.hairpick button{aspect-ratio:1;border-radius:14px;background:var(--soft);border:3px solid transparent;padding:0;overflow:hidden}.hairpick button.on{border-color:var(--navy)}.hairpick button div{width:100%;height:100%}
+.avb{position:absolute;font-size:24cqw;line-height:1;filter:drop-shadow(0 1px 1px rgba(0,0,0,.25));pointer-events:none}

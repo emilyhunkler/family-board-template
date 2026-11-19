@@ -1,4 +1,54 @@
 // Default configuration. Everything here is editable on the Parents screen and stored in D1.
+// ---------- wardrobe ----------
+// Every look in the DiceBear "adventurer" avatar set is free, so any kid can look like themself. Stars buy the fun extras.
+const NAMED_HAIR = { long05: 'Bob', long15: 'Pigtails', long16: 'Braid', long07: 'Bangs', long13: 'Buns', long24: 'Curly', long23: 'Top bun',
+  short01: 'Short', short04: 'Spiky', short09: 'Swoop', short13: 'Tousled', short19: 'Buzz', short16: 'Curly short' };
+const STAR_HAIR = { long03: ['Flower crown', 15, 2], long08: ['Daisy crown', 15, 2], long18: ['Flower clip', 10, 0] };
+const pad = (n) => String(n).padStart(2, '0');
+const hair = [];
+for (let i = 1; i <= 19; i++) { const v = 'short' + pad(i); hair.push({ id: 'h-' + v, kind: 'hair', label: NAMED_HAIR[v] || 'Short ' + i, value: v, cost: 0 }); }
+for (let i = 1; i <= 26; i++) { const v = 'long' + pad(i); const st = STAR_HAIR[v];
+  hair.push(st ? { id: 'h-' + v, kind: 'hair', label: st[0], value: v, cost: st[1], ...(st[2] ? { minLevel: st[2] } : {}) } : { id: 'h-' + v, kind: 'hair', label: NAMED_HAIR[v] || 'Long ' + i, value: v, cost: 0 }); }
+const item = (id, kind, label, value, cost, more = {}) => ({ id, kind, label, value, cost, ...more });
+const CATALOG = [
+  ...hair,
+  // hair colors: the natural ones are free, the bright ones cost stars
+  item('c-black', 'hairColor', 'Black', '0e0e0e', 0), item('c-darkbrown', 'hairColor', 'Dark brown', '562306', 0), item('c-brown', 'hairColor', 'Brown', '6a4e35', 0),
+  item('c-lightbrown', 'hairColor', 'Light brown', '796a45', 0), item('c-dirty', 'hairColor', 'Dirty blonde', '97804f', 0), item('c-golden', 'hairColor', 'Golden', 'b9a05f', 0),
+  item('c-blonde', 'hairColor', 'Light blonde', 'e5d7a3', 0), item('c-auburn', 'hairColor', 'Auburn', 'ac6511', 0), item('c-ginger', 'hairColor', 'Ginger', 'cb6820', 0),
+  item('c-red', 'hairColor', 'Red', 'ab2a18', 0), item('c-silver', 'hairColor', 'Silver', 'afafaf', 10),
+  item('c-pink', 'hairColor', 'Pink hair', 'dba3be', 20, { minLevel: 4 }), item('c-blue', 'hairColor', 'Blue hair', '85c2c6', 20, { minLevel: 4 }),
+  item('c-green', 'hairColor', 'Green hair', '3eac2c', 20, { minLevel: 4 }), item('c-plum', 'hairColor', 'Purple hair', '592454', 20, { minLevel: 4 }),
+  // glasses and earrings: every style in the set
+  item('g-01', 'glasses', 'Round glasses', 'variant01', 10), item('g-02', 'glasses', 'Square glasses', 'variant02', 10), item('g-03', 'glasses', 'Big glasses', 'variant03', 10),
+  item('g-04', 'glasses', 'Thin glasses', 'variant04', 10), item('g-05', 'glasses', 'Cat-eye glasses', 'variant05', 12, { minLevel: 3 }),
+  item('e-01', 'earrings', 'Studs', 'variant01', 6), item('e-02', 'earrings', 'Tiny hoops', 'variant02', 6), item('e-03', 'earrings', 'Hoops', 'variant03', 10),
+  item('e-04', 'earrings', 'Drops', 'variant04', 10), item('e-05', 'earrings', 'Gems', 'variant05', 12), item('e-06', 'earrings', 'Dangly', 'variant06', 14, { minLevel: 3 }),
+  // backgrounds
+  item('b-mint', 'bg', 'Mint', 'd9f0e2', 0), item('b-sun', 'bg', 'Sunshine', 'fff3c4', 5), item('b-sky', 'bg', 'Sky', 'e6f4ff', 5), item('b-lilac', 'bg', 'Lilac', 'ece4ff', 8),
+  item('b-peach', 'bg', 'Peach', 'ffe0d1', 5), item('b-coral', 'bg', 'Coral', 'ffc9c2', 8), item('b-lime', 'bg', 'Lime', 'e4f5b8', 8), item('b-navy', 'bg', 'Midnight', '2b3a67', 12),
+  item('b-sunset', 'bg', 'Sunset', 'sunset', 15, { minLevel: 2 }), item('b-ocean', 'bg', 'Ocean', 'ocean', 15, { minLevel: 2 }), item('b-forest', 'bg', 'Forest', 'forest', 15, { minLevel: 2 }),
+  item('b-candy', 'bg', 'Cotton candy', 'candy', 18, { minLevel: 3 }), item('b-galaxy', 'bg', 'Galaxy', 'galaxy', 25, { minLevel: 5 }), item('b-rainbow', 'bg', 'Rainbow', 'rainbow', 25, { minLevel: 5 }),
+  // pets sit at the bottom right
+  item('p-dog', 'pet', 'Puppy', '🐶', 0), item('p-cat', 'pet', 'Kitten', '🐱', 10), item('p-bunny', 'pet', 'Bunny', '🐰', 12), item('p-hamster', 'pet', 'Hamster', '🐹', 8),
+  item('p-turtle', 'pet', 'Turtle', '🐢', 8), item('p-frog', 'pet', 'Frog', '🐸', 8), item('p-penguin', 'pet', 'Penguin', '🐧', 12), item('p-octopus', 'pet', 'Octopus', '🐙', 12),
+  item('p-fox', 'pet', 'Fox', '🦊', 14), item('p-owl', 'pet', 'Owl', '🦉', 14), item('p-horse', 'pet', 'Pony', '🐴', 15), item('p-panda', 'pet', 'Panda', '🐼', 16),
+  item('p-shark', 'pet', 'Shark', '🦈', 18, { minLevel: 3 }), item('p-trex', 'pet', 'T. rex', '🦖', 20, { minLevel: 3 }), item('p-unicorn', 'pet', 'Unicorn', '🦄', 30, { minLevel: 5 }),
+  item('p-dragon', 'pet', 'Dragon', '🐉', 0, { prizeOnly: true }),
+  // extras sit at the top left
+  item('x-bow', 'extra', 'Big bow', '🎀', 6), item('x-sunflower', 'extra', 'Sunflower', '🌻', 6), item('x-butterfly', 'extra', 'Butterfly', '🦋', 8), item('x-cap', 'extra', 'Ball cap', '🧢', 8),
+  item('x-star', 'extra', 'Star badge', '⭐', 10), item('x-tophat', 'extra', 'Top hat', '🎩', 10), item('x-rainbow', 'extra', 'Rainbow', '🌈', 10), item('x-lightning', 'extra', 'Lightning', '⚡', 10),
+  item('x-planet', 'extra', 'Planet', '🪐', 14), item('x-shine', 'extra', 'Shining star', '🌟', 20, { minLevel: 4 }), item('x-gem', 'extra', 'Gem', '💎', 25, { minLevel: 5 }),
+  item('x-crown', 'extra', 'Crown', '👑', 0, { minLevel: 5 }), item('x-wand', 'extra', 'Magic wand', '🪄', 0, { prizeOnly: true }), item('x-trophy', 'extra', 'Trophy', '🏆', 0, { prizeOnly: true }),
+  // gear sits at the bottom left: the things a kid loves doing
+  item('k-soccer', 'gear', 'Soccer ball', '⚽', 6), item('k-basket', 'gear', 'Basketball', '🏀', 6), item('k-football', 'gear', 'Football', '🏈', 6), item('k-baseball', 'gear', 'Baseball', '⚾', 6),
+  item('k-tennis', 'gear', 'Tennis', '🎾', 6), item('k-books', 'gear', 'Books', '📚', 6), item('k-paint', 'gear', 'Paints', '🎨', 8), item('k-music', 'gear', 'Music', '🎵', 8),
+  item('k-headphones', 'gear', 'Headphones', '🎧', 10), item('k-skate', 'gear', 'Skateboard', '🛹', 10), item('k-guitar', 'gear', 'Guitar', '🎸', 12), item('k-game', 'gear', 'Game controller', '🎮', 12),
+  item('k-ballet', 'gear', 'Ballet shoes', '🩰', 12), item('k-telescope', 'gear', 'Telescope', '🔭', 14), item('k-rocket', 'gear', 'Rocket', '🚀', 15, { minLevel: 3 }),
+];
+// Boards saved before v2 kept older prices for looks that are free now. Only prices a parent never changed move to free.
+export const WARDROBE_V2_FREE = { 'h-long07': 5, 'h-long13': 8, 'h-long24': 8, 'h-long23': 8, 'h-short13': 5, 'h-short16': 8, 'c-red': 15, 'c-blonde': 5 };
+
 export default {
   version: 1,
   pin: '1234',
@@ -73,31 +123,5 @@ export default {
     kidsCan: ['check', 'claim', 'ask', 'grocery'], ai: false, aiModel: 'claude-haiku-5-5', language: 'en-US', handsFree: false, cloud: true, cloudVoice: 'thalia', wakeAlso: 'hey calender, a calendar, ok calendar, hey calendars' },
   ambient: { showWeek: true, idleMinutes: 2, sleepFrom: '21:00', sleepTo: '06:00', dimAtNight: true, morning: true },
   setup: { done: false },
-  wardrobe: {
-    catalog: [
-      { id: 'h-long05', kind: 'hair', label: 'Bob', value: 'long05', cost: 0 }, { id: 'h-long15', kind: 'hair', label: 'Pigtails', value: 'long15', cost: 0 },
-      { id: 'h-long16', kind: 'hair', label: 'Braid', value: 'long16', cost: 0 }, { id: 'h-long07', kind: 'hair', label: 'Bangs', value: 'long07', cost: 5 },
-      { id: 'h-long13', kind: 'hair', label: 'Buns', value: 'long13', cost: 8 }, { id: 'h-long24', kind: 'hair', label: 'Curly', value: 'long24', cost: 8 },
-      { id: 'h-long03', kind: 'hair', label: 'Flower crown', value: 'long03', cost: 15, minLevel: 2 }, { id: 'h-long08', kind: 'hair', label: 'Daisy crown', value: 'long08', cost: 15, minLevel: 2 },
-      { id: 'h-long18', kind: 'hair', label: 'Flower clip', value: 'long18', cost: 10 }, { id: 'h-long23', kind: 'hair', label: 'Top bun', value: 'long23', cost: 8 },
-      { id: 'h-short01', kind: 'hair', label: 'Short', value: 'short01', cost: 0 }, { id: 'h-short04', kind: 'hair', label: 'Spiky', value: 'short04', cost: 0 },
-      { id: 'h-short09', kind: 'hair', label: 'Swoop', value: 'short09', cost: 0 }, { id: 'h-short13', kind: 'hair', label: 'Tousled', value: 'short13', cost: 5 },
-      { id: 'h-short19', kind: 'hair', label: 'Buzz', value: 'short19', cost: 0 }, { id: 'h-short16', kind: 'hair', label: 'Curly short', value: 'short16', cost: 8 },
-      { id: 'g-01', kind: 'glasses', label: 'Round glasses', value: 'variant01', cost: 10 }, { id: 'g-03', kind: 'glasses', label: 'Big glasses', value: 'variant03', cost: 10 },
-      { id: 'g-05', kind: 'glasses', label: 'Cat-eye glasses', value: 'variant05', cost: 12, minLevel: 3 },
-      { id: 'e-01', kind: 'earrings', label: 'Studs', value: 'variant01', cost: 6 }, { id: 'e-03', kind: 'earrings', label: 'Hoops', value: 'variant03', cost: 10 },
-      { id: 'e-06', kind: 'earrings', label: 'Dangly', value: 'variant06', cost: 14, minLevel: 3 },
-      { id: 'c-pink', kind: 'hairColor', label: 'Pink hair', value: 'dba3be', cost: 20, minLevel: 4 }, { id: 'c-blue', kind: 'hairColor', label: 'Blue hair', value: '85c2c6', cost: 20, minLevel: 4 },
-      { id: 'c-red', kind: 'hairColor', label: 'Red hair', value: 'ab2a18', cost: 15 }, { id: 'c-blonde', kind: 'hairColor', label: 'Light blonde', value: 'e5d7a3', cost: 5 },
-      { id: 'c-brown', kind: 'hairColor', label: 'Brown', value: '6a4e35', cost: 0 }, { id: 'c-dirty', kind: 'hairColor', label: 'Dirty blonde', value: '97804f', cost: 0 },
-      { id: 'b-mint', kind: 'bg', label: 'Mint', value: 'd9f0e2', cost: 0 }, { id: 'b-sun', kind: 'bg', label: 'Sunshine', value: 'fff3c4', cost: 5 },
-      { id: 'b-sky', kind: 'bg', label: 'Sky', value: 'e6f4ff', cost: 5 }, { id: 'b-lilac', kind: 'bg', label: 'Lilac', value: 'ece4ff', cost: 8 },
-      { id: 'b-rainbow', kind: 'bg', label: 'Rainbow', value: 'rainbow', cost: 25, minLevel: 5 },
-      { id: 'p-dog', kind: 'pet', label: 'Puppy', value: '🐶', cost: 0 }, { id: 'p-cat', kind: 'pet', label: 'Kitten', value: '🐱', cost: 10 },
-      { id: 'p-bunny', kind: 'pet', label: 'Bunny', value: '🐰', cost: 12 }, { id: 'p-unicorn', kind: 'pet', label: 'Unicorn', value: '🦄', cost: 30, minLevel: 5 },
-      { id: 'p-dragon', kind: 'pet', label: 'Dragon', value: '🐉', cost: 0, prizeOnly: true },
-      { id: 'x-crown', kind: 'extra', label: 'Crown', value: '👑', cost: 0, minLevel: 5 }, { id: 'x-wand', kind: 'extra', label: 'Magic wand', value: '🪄', cost: 0, prizeOnly: true },
-      { id: 'x-star', kind: 'extra', label: 'Star badge', value: '⭐', cost: 10 }, { id: 'x-bow', kind: 'extra', label: 'Big bow', value: '🎀', cost: 6 },
-    ],
-  },
+  wardrobe: { v: 2, catalog: CATALOG },
 };

@@ -34,22 +34,27 @@ export function confetti() { const c = document.createElement('canvas'); c.class
 // ---------- avatars (DiceBear adventurer, runs in the browser) ----------
 let dice = null; const diceLoad = Promise.all([import('https://cdn.jsdelivr.net/npm/@dicebear/core@9.4.3/+esm'), import('https://cdn.jsdelivr.net/npm/@dicebear/adventurer@9.4.2/+esm')]).then(([core, adv]) => { dice = { core, adv }; }).catch((e) => console.warn('avatar lib', e));
 const avCache = new Map();
+// Backgrounds that are a gradient rather than one color.
+export const BG_FILL = { rainbow: 'conic-gradient(#ffb3bd,#ffe39a,#b9f3d2,#b3dbff,#e0c9ff,#ffb3bd)', sunset: 'linear-gradient(160deg,#ffe29f,#ffa99f 55%,#ff719a)',
+  ocean: 'linear-gradient(160deg,#c2e9fb,#a1c4fd 60%,#7aa7f0)', forest: 'linear-gradient(160deg,#d4f5c4,#8fd3a0 60%,#4f9d6b)',
+  candy: 'linear-gradient(160deg,#fbc2eb,#d9c6ff 55%,#a6c1ee)', galaxy: 'radial-gradient(circle at 30% 25%,#8e7cff,#3a2f7a 55%,#141b33)' };
+export const bgFill = (v) => BG_FILL[v] || '#' + v;
 export function avatarSvg(look) {
   if (!dice) return '';
   const key = JSON.stringify(look); if (avCache.has(key)) return avCache.get(key);
-  const o = { seed: 'kid', hair: [look.hair || 'long16'], hairColor: [look.hairColor || '97804f'], skinColor: [look.skinColor || 'f2d3b1'], eyes: [look.eyes || 'variant26'], mouth: [look.mouth || 'variant26'], featuresProbability: look.features ? 100 : 0, backgroundColor: [look.bg && look.bg !== 'rainbow' ? look.bg : 'transparent'], glassesProbability: look.glasses ? 100 : 0, earringsProbability: look.earrings ? 100 : 0 };
-  if (look.features) o.features = [look.features]; if (look.glasses) o.glasses = [look.glasses]; if (look.earrings) o.earrings = [look.earrings];
+  const o = { seed: 'kid', hair: [look.hair || 'long16'], hairColor: [look.hairColor || '97804f'], skinColor: [look.skinColor || 'f2d3b1'], eyes: [look.eyes || 'variant26'], mouth: [look.mouth || 'variant26'], featuresProbability: look.features ? 100 : 0, backgroundColor: [look.bg && !BG_FILL[look.bg] ? look.bg : 'transparent'], glassesProbability: look.glasses ? 100 : 0, earringsProbability: look.earrings ? 100 : 0 };
+  if (look.features) o.features = [look.features]; if (look.eyebrows) o.eyebrows = [look.eyebrows]; if (look.glasses) o.glasses = [look.glasses]; if (look.earrings) o.earrings = [look.earrings];
   let svg = ''; try { svg = dice.core.createAvatar(dice.adv, o).toString(); } catch (e) { console.warn(e); }
   avCache.set(key, svg); return svg;
 }
 export function Avatar({ kid, look, size }) {
   const [, tick] = useState(0); useEffect(() => { diceLoad.then(() => tick((n) => n + 1)); }, []);
   const lk = { ...(kid?.avatar || {}), ...(look || kid?.wardrobe?.look || {}) }; const svg = avatarSvg(lk);
-  const rainbow = lk.bg === 'rainbow';
-  return html`<div class="av" style=${{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', background: rainbow ? 'conic-gradient(#ffb3bd,#ffe39a,#b9f3d2,#b3dbff,#e0c9ff,#ffb3bd)' : lk.bg ? '#' + lk.bg : '#e3f2e7', position: 'relative', flex: 'none' }}>
-    <div dangerouslySetInnerHTML=${{ __html: svg }} style="width:100%;height:100%"></div>
-    ${lk.pet ? html`<span style="position:absolute;right:4%;bottom:2%;font-size:28%;line-height:1">${lk.pet}</span>` : ''}
-    ${lk.extra ? html`<span style="position:absolute;left:6%;top:4%;font-size:26%;line-height:1">${lk.extra}</span>` : ''}
+  // Pets, extras and gear sit on top like stickers, sized to the avatar (cqw), so they show at every size.
+  const badge = (v, pos) => v ? html`<span class="avb" style=${pos}>${v}</span>` : '';
+  return html`<div class="av" style=${{ width: size, height: size, position: 'relative', flex: 'none', containerType: 'inline-size' }}>
+    <div style=${{ width: '100%', height: '100%', borderRadius: '50%', overflow: 'hidden', background: lk.bg ? bgFill(lk.bg) : '#e3f2e7' }} dangerouslySetInnerHTML=${{ __html: svg }}></div>
+    ${badge(lk.pet, 'right:-2%;bottom:-2%')}${badge(lk.extra, 'left:-2%;top:-2%')}${badge(lk.gear, 'left:-2%;bottom:-2%')}
   </div>`;
 }
 // The mascot is the family's pet when they have one (the dog drawing for dogs, an emoji otherwise), or a smiling sun.
@@ -193,7 +198,7 @@ function KidPage({ b, k, refresh, setPage, startTimer, withPin }) {
       <div class="lvbar"><div class="bar"><i style=${{ width: Math.round(100 * k.level.into / k.level.per) + '%', background: k.color }}></i></div><small><span>${k.lifetime} ★ all time</span><span>${k.level.into} / ${k.level.per}</span></small></div>
       <div class="money"><b>${money(k.week.total)}</b><span>${payLabel(b) === 'today' ? 'pay day today! 💰' : 'pay day ' + payLabel(b)}</span></div><div class="days">${k.week.days.map((d) => html`<i class=${d.status} title=${d.date}></i>`)}</div>
       ${k.goal ? html`<div class="lvbar" style="margin-top:4px"><small><span>🎯 ${k.goal.title}</span><span>${money(k.jar)} / ${money(k.goal.amount)}</span></small><div class="bar"><i style=${{ width: Math.min(100, Math.round(100 * k.jar / (k.goal.amount || 1))) + '%', background: '#ffc857' }}></i></div></div>` : ''}
-      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><button class="pill" onClick=${() => setPage('wardrobe', k.id)}>👗 Wardrobe</button><button class="pill lite" onClick=${() => setPage('home')}>🏠 Home</button></div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><button class="pill" onClick=${() => setPage('wardrobe', k.id)}>👕 Wardrobe</button><button class="pill lite" onClick=${() => setPage('home')}>🏠 Home</button></div></div>
     <div class="lists" style=${{ '--kc': k.color }}>
       ${groups.map(([name, list]) => html`<div class="card group"><div class="hd"><b>${name}</b><span>${list.filter((t) => t.done).length} of ${list.length}${name === 'Before school' && !morningOpen ? ' · done for today' : ''}</span></div>
         ${list.map((t) => html`<button class=${'ti' + (t.done ? ' done' : '') + (t.doneByOther ? ' other' : '')} onClick=${() => tap(t)}><span class="bx">${t.done ? '✓' : ''}</span><span class="em">${t.emoji}</span><span class="tt">${t.title}${t.shared ? html`<small>${t.doneByOther ? 'done by ' + (b.kids.find((x) => x.id === t.doneBy)?.name || 'someone else') : 'shared, first to finish earns it'}</small>` : t.turn ? html`<small>your turn today</small>` : ''}</span>${t.timerMin && !t.done ? html`<span class="timer" onClick=${(e) => { e.stopPropagation(); startTimer(t.timerMin * 60, t.title, () => tap(t)); }}>⏱ ${t.timerMin} min</span>` : ''}<span class="st">★ ${t.stars}</span></button>`)}</div>`)}
@@ -205,8 +210,12 @@ function KidPage({ b, k, refresh, setPage, startTimer, withPin }) {
     </div></div></div>`;
 }
 
-const KINDS = [['hair', 'Hair'], ['hairColor', 'Hair color'], ['skin', 'Skin'], ['face', 'Face'], ['glasses', 'Glasses'], ['earrings', 'Earrings'], ['bg', 'Backgrounds'], ['pet', 'Pets'], ['extra', 'Extras']];
-const SKINS = ['f2d3b1', 'ecad80', 'e8c1a0', '9e5622', '763900', 'ffdbb4']; const EYES = ['variant26', 'variant09', 'variant02', 'variant03', 'variant05', 'variant11', 'variant13', 'variant23', 'variant24', 'variant25']; const MOUTHS = ['variant26', 'variant22', 'variant23', 'variant25', 'variant27', 'variant28', 'variant29', 'variant30', 'variant09', 'variant10'];
+const KINDS = [['hair', 'Hair'], ['hairColor', 'Hair color'], ['skin', 'Skin'], ['eyes', 'Eyes'], ['brows', 'Brows'], ['mouth', 'Smile'], ['face', 'Freckles'], ['glasses', 'Glasses'], ['earrings', 'Earrings'], ['bg', 'Backgrounds'], ['pet', 'Pets'], ['extra', 'Extras'], ['gear', 'Gear']];
+// Every face option in the adventurer set is free.
+const variants = (n) => Array.from({ length: n }, (_, i) => 'variant' + String(i + 1).padStart(2, '0'));
+export const SKINS = ['ffdbb4', 'f2d3b1', 'e8c1a0', 'ecad80', 'c68e5f', '9e5622', '763900', '5a3418']; const EYES = variants(26); const MOUTHS = variants(30); const BROWS = variants(15);
+const FEATURES = [['', 'Plain', '🙂'], ['blush', 'Blush', '🌸'], ['freckles', 'Freckles', '✨'], ['birthmark', 'Beauty mark', '•'], ['mustache', 'Silly mustache', '🥸']];
+const TOGGLES = ['glasses', 'earrings', 'pet', 'extra', 'gear'];
 function Wardrobe({ b, kidId, refresh, setPage }) {
   const [kid, setKid] = useState(kidId || b.kids[0].id); const k = b.kids.find((x) => x.id === kid) || b.kids[0]; const [tab, setTab] = useState('hair');
   const [look, setLook] = useState({ ...k.avatar, ...k.wardrobe.look }); useEffect(() => setLook({ ...k.avatar, ...k.wardrobe.look }), [kid, b.now]);
@@ -216,17 +225,20 @@ function Wardrobe({ b, kidId, refresh, setPage }) {
   const pick = async (it) => {
     if (!have(it)) { if (it.prizeOnly) return toast('This one comes with a weekly prize'); if (it.minLevel && k.level.level < it.minLevel) return toast(`Reach level ${it.minLevel} to unlock`); if (k.wardrobe.balance < it.cost) return toast(`Need ${it.cost - k.wardrobe.balance} more stars`);
       if (!confirm(`Unlock ${it.label} for ${it.cost} stars?`)) return; try { await api('/api/wardrobe/buy', { kid: k.id, itemId: it.id }); chime('win'); confetti(); } catch (e) { return toast(e.message); } }
-    const lk = { ...look }; if (['glasses', 'earrings', 'pet', 'extra'].includes(it.kind) && lk[it.kind] === it.value) delete lk[it.kind]; else lk[it.kind] = it.value; save(lk);
+    const lk = { ...look }; if (TOGGLES.includes(it.kind) && lk[it.kind] === it.value) delete lk[it.kind]; else lk[it.kind] = it.value; save(lk);
   };
   const items = cat.filter((i) => i.kind === tab);
   return html`<div class="page"><div class="wkhead"><h2>${k.name}'s wardrobe</h2><div class="seg">${b.kids.map((x) => html`<button class=${x.id === kid ? 'on' : ''} onClick=${() => setKid(x.id)}>${x.name}</button>`)}</div><div class="coins" style="margin-left:auto">★ ${k.wardrobe.balance}<span>to spend</span></div></div>
-    <div class="ward"><div class="card stage"><${Avatar} kid=${k} look=${look} size="260px" /><div style="display:flex;gap:8px"><button class="pill" onClick=${() => { chime('ok'); toast('Saved!'); setPage(k.id); }}>Done</button><button class="pill lite" onClick=${() => { const lk = { ...look, eyes: EYES[Math.random() * EYES.length | 0], mouth: MOUTHS[Math.random() * MOUTHS.length | 0] }; const hairs = cat.filter((i) => i.kind === 'hair' && have(i)); lk.hair = hairs[Math.random() * hairs.length | 0].value; save(lk); }}>🎲 Surprise me</button></div></div>
+    <div class="ward"><div class="card stage"><${Avatar} kid=${k} look=${look} size="260px" /><div style="display:flex;gap:8px"><button class="pill" onClick=${() => { chime('ok'); toast('Saved!'); setPage(k.id); }}>Done</button><button class="pill lite" onClick=${() => { const r = (l) => l[Math.random() * l.length | 0]; const lk = { ...look, eyes: r(EYES), mouth: r(MOUTHS), eyebrows: r(BROWS) }; const hairs = cat.filter((i) => i.kind === 'hair' && have(i)); lk.hair = hairs[Math.random() * hairs.length | 0].value; save(lk); }}>🎲 Surprise me</button></div></div>
       <div><div class="tabs">${KINDS.map(([id, lab]) => html`<button class=${tab === id ? 'on' : ''} onClick=${() => setTab(id)}>${lab}</button>`)}</div>
         <div class="grid">
           ${tab === 'skin' ? SKINS.map((s) => html`<button class=${'item' + (look.skinColor === s ? ' sel' : '')} onClick=${() => save({ ...look, skinColor: s })}><span class="sw" style=${{ background: '#' + s }}></span></button>`) : ''}
-          ${tab === 'face' ? html`${EYES.map((e) => html`<button class=${'item' + (look.eyes === e ? ' sel' : '')} onClick=${() => save({ ...look, eyes: e })}><div style="width:70px;height:70px" dangerouslySetInnerHTML=${{ __html: avatarSvg({ ...look, eyes: e }) }}></div><small>eyes</small></button>`)}${MOUTHS.map((m) => html`<button class=${'item' + (look.mouth === m ? ' sel' : '')} onClick=${() => save({ ...look, mouth: m })}><div style="width:70px;height:70px" dangerouslySetInnerHTML=${{ __html: avatarSvg({ ...look, mouth: m }) }}></div><small>smile</small></button>`)}${['blush', 'freckles', ''].map((f) => html`<button class=${'item' + ((look.features || '') === f ? ' sel' : '')} onClick=${() => save({ ...look, features: f })}><span class="e">${f === 'blush' ? '🌸' : f === 'freckles' ? '✨' : '🙂'}</span><small>${f || 'plain'}</small></button>`)}` : ''}
+          ${tab === 'eyes' ? EYES.map((e) => html`<button class=${'item' + (look.eyes === e ? ' sel' : '')} onClick=${() => save({ ...look, eyes: e })}><div class="zoomface" dangerouslySetInnerHTML=${{ __html: avatarSvg({ ...look, eyes: e }) }}></div></button>`) : ''}
+          ${tab === 'brows' ? BROWS.map((e) => html`<button class=${'item' + (look.eyebrows === e ? ' sel' : '')} onClick=${() => save({ ...look, eyebrows: e })}><div class="zoomface" dangerouslySetInnerHTML=${{ __html: avatarSvg({ ...look, eyebrows: e }) }}></div></button>`) : ''}
+          ${tab === 'mouth' ? MOUTHS.map((m) => html`<button class=${'item' + (look.mouth === m ? ' sel' : '')} onClick=${() => save({ ...look, mouth: m })}><div class="zoomface low" dangerouslySetInnerHTML=${{ __html: avatarSvg({ ...look, mouth: m }) }}></div></button>`) : ''}
+          ${tab === 'face' ? FEATURES.map(([f, lab, e]) => html`<button class=${'item' + ((look.features || '') === f ? ' sel' : '')} onClick=${() => save({ ...look, features: f })}><div style="width:70px;height:70px" dangerouslySetInnerHTML=${{ __html: avatarSvg({ ...look, features: f }) }}></div><small>${lab}</small></button>`) : ''}
           ${items.map((it) => { const ok = have(it); const on = look[it.kind] === it.value; return html`<button class=${'item' + (on ? ' sel' : '') + (ok ? '' : ' lock')} onClick=${() => pick(it)}>
-            ${it.kind === 'hair' ? html`<div style="width:74px;height:74px" dangerouslySetInnerHTML=${{ __html: avatarSvg({ ...look, hair: it.value }) }}></div>` : it.kind === 'hairColor' || it.kind === 'bg' ? html`<span class="sw" style=${{ background: it.value === 'rainbow' ? 'conic-gradient(#ffb3bd,#ffe39a,#b9f3d2,#b3dbff,#e0c9ff,#ffb3bd)' : '#' + it.value }}></span>` : it.kind === 'glasses' || it.kind === 'earrings' ? html`<div style="width:74px;height:74px" dangerouslySetInnerHTML=${{ __html: avatarSvg({ ...look, [it.kind]: it.value }) }}></div>` : html`<span class="e">${it.value}</span>`}
+            ${it.kind === 'hair' ? html`<div style="width:74px;height:74px" dangerouslySetInnerHTML=${{ __html: avatarSvg({ ...look, hair: it.value }) }}></div>` : it.kind === 'hairColor' || it.kind === 'bg' ? html`<span class="sw" style=${{ background: bgFill(it.value) }}></span>` : it.kind === 'glasses' || it.kind === 'earrings' ? html`<div style="width:74px;height:74px" dangerouslySetInnerHTML=${{ __html: avatarSvg({ ...look, [it.kind]: it.value }) }}></div>` : html`<span class="e">${it.value}</span>`}
             <small>${it.label}</small>${!ok ? html`<span class="lk">${it.prizeOnly ? 'Prize' : it.minLevel && k.level.level < it.minLevel ? 'Lv ' + it.minLevel : '★ ' + it.cost}</span>` : ''}</button>`; })}
         </div></div></div></div>`;
 }
@@ -353,6 +365,7 @@ function FeedbackSheet({ b, page, onClose }) {
     <div class="chips" style="margin:0 0 10px">${people.map((n) => html`<button class=${who === n ? 'on' : ''} style=${who === n ? { background: '#1f3a5f', color: '#fff' } : {}} onClick=${() => setWho(n)}>${n}</button>`)}</div>
     <textarea class="gbox" rows="4" style="resize:vertical;min-height:110px" value=${text} onInput=${(e) => setText(e.target.value)} placeholder=${rec ? 'Listening… talk now' : 'The week view should also show…'}></textarea>
     <div class="btns"><button class=${'pill ' + (rec ? 'danger' : 'sun')} onClick=${talk}>${rec ? '⏹ Stop' : '🎙 Talk instead'}</button><button class="pill" disabled=${!text.trim()} onClick=${send}>Send</button></div>
+    ${b.feedbackPublic ? html`<p style="font-size:12px;color:var(--ink2);font-weight:800;margin-top:10px">🌐 Feedback is posted publicly on GitHub so it can be tracked. Names on your board are removed first. Please don't include anything private.</p>` : ''}
     <p style="font-size:12px;color:var(--muted);font-weight:700;margin-top:10px">Tip: on the tablet say "Hey calendar, feedback" to open this with the mic already on.</p>`}</div></div>`;
 }
 // ---------- ambient and sleep ----------
@@ -642,7 +655,7 @@ function App() {
           wardrobe: html`<${Wardrobe} key="wardrobe" b=${b} kidId=${wardKid} refresh=${refresh} setPage=${setPage} />`, groceries: html`<${Groceries} key="groceries" b=${b} refresh=${refresh} />` }[p]; })}
     </div>
     <div class="dots">${pageList.map((p) => html`<button class=${p === page ? 'on' : ''} onClick=${() => setPage(p)} title=${p}></button>`)}</div>
-    <div class="navbar">${pageList.filter((p) => !(parentView && p === 'wardrobe')).map((p) => { const k = b.kids.find((x) => x.id === p); const ic = { week: '📅', home: '🏠', today: '🏠', wardrobe: '👗', groceries: '🛒' }[p] || '⭐'; return html`<button class=${p === page ? 'on' : ''} onClick=${() => setPage(p)}>${k ? html`<${Avatar} kid=${k} size="24px" />` : html`<span>${ic}</span>`}${k ? k.name : p[0].toUpperCase() + p.slice(1)}</button>`; })}${parentView ? html`<button onClick=${() => setParents(true)}><span>⚙️</span>Settings</button>` : ''}</div>
+    <div class="navbar">${pageList.filter((p) => !(parentView && p === 'wardrobe')).map((p) => { const k = b.kids.find((x) => x.id === p); const ic = { week: '📅', home: '🏠', today: '🏠', wardrobe: '👕', groceries: '🛒' }[p] || '⭐'; return html`<button class=${p === page ? 'on' : ''} onClick=${() => setPage(p)}>${k ? html`<${Avatar} kid=${k} size="24px" />` : html`<span>${ic}</span>`}${k ? k.name : p[0].toUpperCase() + p.slice(1)}</button>`; })}${parentView ? html`<button onClick=${() => setParents(true)}><span>⚙️</span>Settings</button>` : ''}</div>
     ${send ? html`<${SendSheet} b=${b} onClose=${() => setSend(false)} />` : ''}
     ${voice.ui}
     ${timer ? html`<${Timer} t=${timer} onDone=${() => { setTimer(null); if (timerCb.current) timerCb.current(); }} onCancel=${() => setTimer(null)} />` : ''}

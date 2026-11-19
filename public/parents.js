@@ -10,7 +10,7 @@ const uid = () => Math.random().toString(36).slice(2, 8);
 const money = (n) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
 // Grouped so everyday jobs come first and one-time setup sits further down.
 const GROUPS = [['Every day', [['approve', '✅', 'Approve quests'], ['todos', '📌', 'To-dos and notes'], ['meals', '🍽️', 'Dinners']]],
-  ['Kids and rewards', [['tasks', '📋', 'Daily chores'], ['quests', '⭐', 'Quests and brain quests'], ['rewards', '🎁', 'Rewards'], ['prize', '🍦', 'Weekly prize'], ['money', '💵', 'Allowance and pay day'], ['wardrobe', '👗', 'Wardrobe and levels']]],
+  ['Kids and rewards', [['tasks', '📋', 'Daily chores'], ['quests', '⭐', 'Quests and brain quests'], ['rewards', '🎁', 'Rewards'], ['prize', '🍦', 'Weekly prize'], ['money', '💵', 'Allowance and pay day'], ['wardrobe', '👕', 'Wardrobe and levels']]],
   ['Family and calendar', [['calendar', '📅', 'Calendar and weather'], ['school', '🏫', 'School days'], ['places', '📍', 'Places and drive times'], ['photos', '📷', 'Photos']]],
   ['This board', [['account', '🔐', 'Sign-in and devices'], ['notify', '🔔', 'Notifications'], ['voice', '🎙️', 'Voice'], ['feedback', '💬', 'Ideas and feedback'], ['settings', '⚙️', 'Settings and PIN']]]];
 const SECTIONS = GROUPS.flatMap(([, list]) => list);
@@ -66,7 +66,7 @@ function Account({ b, cfg, pin }) {
       <details style="margin-top:10px"><summary style="font-weight:800;cursor:pointer">Use an email and password instead</summary>${pwForm}</details>`
     : html`<p style="font-size:12px;color:#8a4b00;font-weight:800;background:var(--note);border-radius:12px;padding:8px 12px">Google sign-in isn't connected yet. Finish the Google setup first if you'd like it, or use an email and password.</p>${pwForm}`}`;
   const meUser = st.users.find((u) => u.id === st.me?.userId);
-  return html`<h3>Sign-in and devices</h3>
+  return html`<h3>Sign-in and devices</h3><p style="margin:6px 0 4px"><a class="pill sm lite" href="/account">🔒 Privacy, your data and deleting your board</a></p>
     <div class="sub">This device</div>
     <div class="trow"><span style="flex:1">${st.me?.kind === 'display' ? '🖥️ Kitchen display' : '📱 ' + (meUser ? meUser.name + "'s device" : 'Parent device')} <small style="color:var(--muted)">${st.me?.kind === 'display' ? '· kids can use it; Parents needs the PIN' : '· Parents opens without the PIN'}</small></span>
       ${st.me ? html`<button class="pill sm lite" onClick=${async () => { await api('/api/admin/device-kind', { kind: st.me.kind === 'display' ? 'parent' : 'display' }, pin); location.reload(); }}>${st.me.kind === 'display' ? 'Make this my device' : 'Make this the kitchen display'}</button><a class="pill sm danger" href="/auth/signout">Sign out</a>` : ''}</div>
