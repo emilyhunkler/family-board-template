@@ -441,7 +441,7 @@ async function startProgress(env, cfg) {
   const [displays, accounts, pushes, checks, meals] = await Promise.all([
     one("SELECT COUNT(*) AS n FROM sessions WHERE kind='display' AND expires_at > ? AND household_id=?", nowIso(), env.HID), one('SELECT COUNT(*) AS n FROM users WHERE pw_hash IS NOT NULL AND household_id=?', env.HID),
     one('SELECT COUNT(*) AS n FROM push_subs WHERE household_id=?', env.HID), one('SELECT COUNT(*) AS n FROM checks WHERE household_id=?', env.HID), one('SELECT COUNT(*) AS n FROM meals WHERE household_id=?', env.HID)]);
-  return { calendar: cfg.calendars.some((c) => c.url && c.url !== 'sample'), display: displays > 0, accounts, grownups: cfg.family.parents.length, pushes, checked: checks > 0, meal: meals > 0 };
+  return { calendar: cfg.calendars.some((c) => c.url && c.url !== 'sample'), display: displays > 0, accounts, grownups: cfg.family.parents.length, pushes, checked: checks > 0, meal: meals > 0, kidsTurn: (cfg.setup?.kidsTurn || []).length };
 }
 async function morningBriefing(env, cfg, req) {
   const zone = cfg.zone; const now = new Date(); const p = parts(now, zone); const today = ymd(now, zone); const [h, m] = (cfg.notify?.morningAt || '06:45').split(':').map(Number);
@@ -451,7 +451,7 @@ async function morningBriefing(env, cfg, req) {
   const meal = await env.DB.prepare('SELECT text FROM meals WHERE date=? AND household_id=?').bind(today, env.HID).first();
   const lines = [];
   if (d) lines.push(`${d.icon} ${d.high}°/${d.low}°, ${H.weatherTip(cfg, d, wx.current)}`);
-  if (P.isSchoolDay(today, cfg)) lines.push(cfg.kids.map((k) => `${k.name} leaves ${k.leaveTime}`).join(', '));
+  if (P.isSchoolDay(today, cfg)) { const go = cfg.kids.filter((k) => k.leaveTime).map((k) => `${k.name} leaves ${k.leaveTime}`).join(', '); if (go) lines.push(go); }
   lines.push(evs.length ? evs.slice(0, 5).map((e) => `${e.timeLabel} ${e.title}`).join(' · ') : 'Nothing on the calendar');
   if (meal) lines.push(`Dinner: ${meal.text}`);
   await notify(env, 'morning', 'Good morning ☀️', lines.join('\n'));
@@ -578,6 +578,7 @@ export default {
       if (path === '/api/quest/claim' && method === 'POST') return claimQuest(env, cfg, body.kid, body.questId, body.title, body.stars, today);
       if (path === '/api/quiz/finish' && method === 'POST') return finishQuiz(env, cfg, body, today);
       if (path === '/api/quest/decide' && method === 'POST') { if (!admin()) return denyAdmin(req); await env.DB.prepare('UPDATE quest_claims SET status=?, decided_at=? WHERE id=? AND household_id=?').bind(body.approve ? 'approved' : 'denied', nowIso(), body.id, env.HID).run(); return json({ ok: true }); }
+      if (path === '/api/kids-done' && method === 'POST') { const turn = cfg.setup?.kidsTurn; if (Array.isArray(turn) && turn.includes(body.kid)) { cfg.setup.kidsTurn = turn.filter((x) => x !== body.kid); await saveConfig(env, cfg); } return json({ ok: true }); }
       if (path === '/api/wardrobe/look' && method === 'POST') { const ward = await getSetting(env, 'wardrobe:' + body.kid, { owned: [], look: {} }); ward.look = body.look || {}; await setSetting(env, 'wardrobe:' + body.kid, ward); return json({ ok: true }); }
       if (path === '/api/wardrobe/buy' && method === 'POST') {
         const item = cfg.wardrobe.catalog.find((i) => i.id === body.itemId); if (!item) return err('no item', 404); const ward = await getSetting(env, 'wardrobe:' + body.kid, { owned: [], look: {} });
@@ -651,7 +652,11 @@ export default {
         if (sub === 'history') { const l = await env.DB.prepare('SELECT * FROM ledger WHERE household_id=? ORDER BY created_at DESC LIMIT 200').bind(env.HID).all(); const c = await env.DB.prepare("SELECT date, kid, SUM(points) AS stars, COUNT(*) AS n FROM checks WHERE date>=? AND household_id=? GROUP BY date, kid ORDER BY date DESC").bind(addDaysYmd(today, -84), env.HID).all(); return json({ ledger: l.results, days: c.results }); }
         if (sub === 'log') return json((await env.DB.prepare('SELECT * FROM events_log WHERE household_id=? ORDER BY id DESC LIMIT 200').bind(env.HID).all()).results);
         if (sub === 'uncheck') { await env.DB.prepare('DELETE FROM checks WHERE date=? AND task=? AND household_id=?').bind(body.date, body.id, env.HID).run(); return json({ ok: true }); }
-        if (sub === 'test-calendar') { try { const text = await loadIcs(env, body.url, req); const n = parseICS(text, zone).length; return json({ ok: true, events: n }); } catch (e) { return err(e.message); } }
+        if (sub === 'test-calendar') { try { const text = await loadIcs(env, body.url, req); const evs = parseICS(text, zone); const now = new Date(); const later = new Date(now.getTime() + 60 * 86400000);
+          // The next real event, so the grown-up sees their own plans come through.
+          const up = expandEvents(evs, now, later, zone, {}).filter((e) => new Date(e.start) >= now).sort((a, b2) => a.start.localeCompare(b2.start))[0];
+          const when = up ? new Date(up.start).toLocaleString('en-US', { timeZone: zone, weekday: 'long', ...(up.allDay ? {} : { hour: 'numeric', minute: '2-digit' }) }) : '';
+          return json({ ok: true, events: evs.length, next: up ? { title: String(up.title || 'Event').slice(0, 60), when } : null }); } catch (e) { return err(e.message.startsWith('calendar ') ? 'That link didn’t work. Check you copied all of it.' : e.message); } }
       }
       return err('not found', 404);
     } catch (e) { return err(e.message || String(e), 500); }

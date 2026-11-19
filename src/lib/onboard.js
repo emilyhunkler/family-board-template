@@ -11,20 +11,20 @@ const googleIcon = '<svg width="20" height="20" viewBox="0 0 48 48" aria-hidden=
 
 export function signupPage({ site, google, msg = '', v = {} }) {
   const f = (k) => escHtml(v[k] || '');
-  return page('Create your board', `<h1>Create your family's board</h1><p>${escHtml(site)} is in early testing, so you need an invite code. Setup takes about ten minutes.</p>${msg ? `<p class="e">${escHtml(msg)}</p>` : ''}
+  return page('Create your board', `<h1>Let's get your family organized 👋</h1><p>${escHtml(site)} keeps your family's plans, chores and wins in one happy place. We're in early testing, so you'll need an invite code. Getting set up takes about five minutes.</p>${msg ? `<p class="e">${escHtml(msg)}</p>` : ''}
   <form method="post" action="/auth/signup"><input type="hidden" name="zone" id="z" value="${f('zone')}">
   <label for="c">Invite code</label><input id="c" name="code" type="text" autocomplete="off" autocapitalize="characters" required value="${f('code')}">
-  <label for="fam">Family name</label><input id="fam" name="family" type="text" placeholder="Like The Garcias" maxlength="40" required value="${f('family')}">
+  <label for="fam">Your family name</label><input id="fam" name="family" type="text" placeholder="Like The Garcias" maxlength="40" required value="${f('family')}">
   <label for="me">What the kids call you</label><input id="me" name="person" type="text" placeholder="Like Mom, Dad or Grandpa" maxlength="30" required value="${f('person')}">
   ${google ? `<button class="g" name="method" value="google">${googleIcon}Continue with Google</button><details><summary>Use an email and password instead</summary>` : ''}
   <label for="e">Email</label><input id="e" name="email" type="email" autocomplete="username" value="${f('email')}">
   <label for="p">Password</label><input id="p" name="password" type="password" autocomplete="new-password" minlength="10" placeholder="At least 10 characters">
-  <button name="method" value="password">Create our board</button>${google ? '</details>' : ''}</form>
+  <button name="method" value="password">Let's go</button>${google ? '</details>' : ''}</form>
   <p style="margin-top:12px">By creating a board you agree to how we handle your family's information, explained on the <a href="/privacy">privacy page</a>.</p><p class="more"><a href="/">Already have a board? Sign in</a></p>
   <script>try{document.getElementById('z').value||(document.getElementById('z').value=Intl.DateTimeFormat().resolvedOptions().timeZone)}catch(e){}</script>`, msg ? 400 : 200);
 }
 
-export const welcomePage = (code) => page('Welcome', `<h1>Your board is ready 🎉</h1><p>Save this recovery code somewhere safe, like your password manager. It's the way back in if you ever forget your password.</p><div class="code" style="font-size:22px;letter-spacing:.08em">${escHtml(code)}</div><p>Next, a few quick questions to make the board yours.</p><a href="/"><button type="button">Let's set it up</button></a>`);
+export const welcomePage = (code) => page('Welcome', `<h1>You're in! 🎉</h1><p>Save this recovery code somewhere safe, like your password manager. It's the way back in if you ever forget your password.</p><div class="code" style="font-size:22px;letter-spacing:.08em">${escHtml(code)}</div><p>Next, tell us about your crew.</p><a href="/"><button type="button">Let's go</button></a>`);
 
 // The kitchen screen: shows its code and checks every few seconds whether a grown-up has entered it.
 export function pairPage({ code, origin, site }) {

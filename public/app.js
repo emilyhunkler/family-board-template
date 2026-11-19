@@ -19,7 +19,7 @@ export const ymdLocal = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth
 export const fromYmd = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
 export const addDays = (s, n) => { const d = fromYmd(s); d.setDate(d.getDate() + n); return ymdLocal(d); };
 const longDate = (s) => { const d = fromYmd(s); return `${DAYN[d.getDay()]}, ${MONL[d.getMonth()]} ${d.getDate()}`; };
-const minsUntil = (hhmm, now) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m - (now.getHours() * 60 + now.getMinutes()); };
+const minsUntil = (hhmm, now) => { const [h, m] = String(hhmm || 'x').split(':').map(Number); return h * 60 + m - (now.getHours() * 60 + now.getMinutes()); };
 // "Mom or Dad", from whatever the kids call their grown-ups.
 // "A, B and C"
 export const andList = (xs) => xs.length < 2 ? xs.join('') : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1];
@@ -58,7 +58,9 @@ export function Avatar({ kid, look, size }) {
   </div>`;
 }
 // The mascot is the family's pet when they have one (the dog drawing for dogs, an emoji otherwise), or a smiling sun.
-const PET_EMOJI = { cat: '🐱', bunny: '🐰', fish: '🐠', bird: '🐦', hamster: '🐹', guinea: '🐹', turtle: '🐢', lizard: '🦎', horse: '🐴' };
+const PET_EMOJI = { cat: '🐱', bunny: '🐰', fish: '🐠', bird: '🐦', hamster: '🐹', guinea: '🐹', turtle: '🐢', lizard: '🦎', horse: '🐴', owl: '🦉', fox: '🦊', dragon: '🐉', robot: '🤖', unicorn: '🦄', penguin: '🐧', sun: '🌞' };
+// Characters are sidekicks, not pets: no pet food on the grocery list.
+const CHARACTER = new Set(['owl', 'fox', 'dragon', 'robot', 'unicorn', 'penguin', 'sun']);
 export let MASCOT = '<img src="/dog.svg" alt="dog">';
 export function setMascot(fam) { const k = fam?.petKind || (fam?.dog ? 'dog' : ''); MASCOT = k === 'dog' ? `<img src="/dog.svg" alt="${fam.dog || 'dog'}">` : `<span class="mascot-emoji" role="img" aria-label="${fam?.dog || 'sun'}">${PET_EMOJI[k] || (k ? '🐾' : '🌞')}</span>`; }
 
@@ -265,7 +267,7 @@ function ShareSheet({ items, onClose }) {
 function Groceries({ b, refresh }) {
   const [txt, setTxt] = useState(''); const [sharing, setSharing] = useState(false); const list = b.groceries; const open = list.filter((g) => !g.done).sort((a, c) => AISLES.indexOf(a.aisle) - AISLES.indexOf(c.aisle)); const done = list.filter((g) => g.done);
   const add = async () => { if (!txt.trim()) return; await api('/api/grocery', { text: txt, by: 'board' }); setTxt(''); chime('ok'); refresh(); };
-  const often = ['Milk', 'Bread', 'Bananas', 'Eggs', 'Yogurt tubes', 'Apples', 'Cheese sticks', ...(b.config.family.dog ? [`${b.config.family.dog}'s food`] : ['Cereal'])];
+  const often = ['Milk', 'Bread', 'Bananas', 'Eggs', 'Yogurt tubes', 'Apples', 'Cheese sticks', ...(b.config.family.dog && !CHARACTER.has(b.config.family.petKind) ? [`${b.config.family.dog}'s food`] : ['Cereal'])];
   return html`<div class="page"><div class="wkhead"><h2>Groceries</h2><span style="color:var(--muted);font-weight:800">${open.length} things</span>${open.length ? html`<button class="pill sm wa" style="margin-left:auto" onClick=${() => setSharing(true)}>📤 Send list</button>` : ''}${done.length ? html`<button class="pill lite sm" style=${open.length ? '' : 'margin-left:auto'} onClick=${async () => { await api('/api/grocery/clear', {}); refresh(); }}>🧹 Clear ${done.length} checked</button>` : ''}</div>
     <div class="groc"><div class="card glist">${[...open, ...done].map((g) => html`<button class=${'gi' + (g.done ? ' done' : '')} onClick=${async () => { await api(`/api/grocery/${g.id}/toggle`, {}); refresh(); }}><span class="bx">${g.done ? '✓' : ''}</span>${g.text}<em>${g.aisle}</em>${g.done ? html`<span class="x" onClick=${async (e) => { e.stopPropagation(); await del(`/api/grocery/${g.id}`); refresh(); }}>×</span>` : ''}</button>`)}${!list.length ? html`<div style="padding:20px;color:var(--muted);font-weight:800">The list is empty. Add something →</div>` : ''}</div>
       <div class="card gadd"><div class="lbl">Add something</div><input class="gbox" value=${txt} onInput=${(e) => setTxt(e.target.value)} onKeyDown=${(e) => e.key === 'Enter' && add()} placeholder="Oat milk, bananas, poop bags…" /><div class="hint">A few at once with commas, or hold the mic and say them. The aisle is picked for you.</div><button class="pill" style="margin-top:10px" onClick=${add}>Add</button>
@@ -443,7 +445,7 @@ function GoodMorning({ b, onDone, openKid }) {
     <div class="gmgrid" style=${{ '--gmk': b.kids.length }}>
       <div class="card gmwx">${w ? html`<span class="ico">${w.current.icon}</span><div><b>${w.current.temp}° now</b> · high ${d0?.high}°, low ${d0?.low}°<small>${d0 ? `rain ${d0.rainPct}%` : ''}${b.tip ? ' · ' + b.tip : ''}</small></div>` : html`<div>Weather is loading…</div>`}</div>
       ${b.kids.map((k) => { const ms = k.today.filter((x) => x.when === 'morning' && !x.doneByOther); const list = ms.length ? ms : k.today.filter((x) => !x.doneByOther).slice(0, 4); return html`<button class="card gmkid" style=${{ '--kc': k.color }} onClick=${() => { done(); openKid(k.id); }}>
-        <div class="gmk"><${Avatar} kid=${k} size="72px" /><div><b>${k.name}</b>${b.isSchoolDay ? html`<small>out the door by ${k.leaveTime}</small>` : html`<small>${list.length} thing${list.length === 1 ? '' : 's'} today</small>`}</div></div>
+        <div class="gmk"><${Avatar} kid=${k} size="72px" /><div><b>${k.name}</b>${b.isSchoolDay && k.leaveTime ? html`<small>out the door by ${k.leaveTime}</small>` : html`<small>${list.length} thing${list.length === 1 ? '' : 's'} today</small>`}</div></div>
         <ul>${list.slice(0, 5).map((x) => html`<li class=${x.done ? 'ok' : ''}><span>${x.done ? '✅' : x.emoji}</span>${x.title}</li>`)}${!list.length ? html`<li><span>🎈</span>Nothing to do yet</li>` : ''}</ul></button>`; })}
       <div class="card gmday"><div class="lbl">Today</div>${evs.length ? evs.slice(0, 6).map((e) => html`<div class="gme" style=${{ borderLeftColor: e.color }}><i>${e.allDay ? 'all day' : e.timeLabel}</i>${e.emoji} ${e.title}<small>${e.who}${e.place ? ' · leave by ' + e.place.leaveBy : ''}</small></div>`) : html`<div class="gme">Nothing on the calendar 🎈</div>`}${evs.length > 6 ? html`<div class="gme more">+${evs.length - 6} more</div>` : ''}
         <div class="gme din">🍽️ Dinner: ${meal ? `${meal.emoji || ''} ${meal.text}` : 'not planned yet'}</div></div>
@@ -479,26 +481,43 @@ function usePushState() {
 const startHidden = () => { try { return localStorage.getItem('fb-start-hidden') === '1'; } catch { return false; } };
 const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || !!navigator.standalone;
 const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-// The first-week checklist on a grown-up's phone. Each step ticks itself off once it's done.
-function GettingStarted({ b, openParents, planDinner, onHide }) {
-  const st = b.start; const [push, setPush] = usePushState(); const [msg, setMsg] = useState(''); const [hidden, setHidden] = useState(() => { try { return localStorage.getItem('fb-start-hidden') === '1'; } catch { return false; } });
+// The first-week checklist for grown-ups. One "next up" step at a time, suited to the device they're holding; each step ticks itself off once it's done.
+const onComputer = () => !isIOS() && !/Android/i.test(navigator.userAgent) && matchMedia('(pointer:fine)').matches && innerWidth >= 900;
+function PairBox() {
+  const [code, setCode] = useState(''); const [msg, setMsg] = useState(''); const [ok, setOk] = useState(false); const [busy, setBusy] = useState(false);
+  const go = async () => { setBusy(true); setMsg(''); try { const r = await fetch('/link', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ code }) }); if (r.ok) { setOk(true); chime('win'); confetti(); } else { const t = await r.text(); setMsg((/<p class="e">([^<]+)/.exec(t) || [])[1]?.replace(/&#39;/g, '’') || 'That code didn’t match. Check the tablet.'); chime('bad'); } } catch { setMsg('Could not reach the board. Try again.'); } finally { setBusy(false); } };
+  if (ok) return html`<p class="gsok">🎉 The tablet is joining your board now!</p>`;
+  return html`<div class="pairbox"><input class="gbox" value=${code} maxlength="9" placeholder="ABC 123" autocapitalize="characters" onInput=${(e) => setCode(e.target.value.toUpperCase())} onKeyDown=${(e) => e.key === 'Enter' && go()} /><button class="pill" disabled=${busy || code.replace(/\W/g, '').length < 6} onClick=${go}>Add tablet</button>${msg ? html`<p class="pterr">${msg}</p>` : ''}</div>`;
+}
+function PhoneQR() {
+  const [svg, setSvg] = useState('');
+  useEffect(() => { import('https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/+esm').then((m) => { const q = (m.default || m)(0, 'M'); q.addData(location.origin); q.make(); setSvg(q.createSvgTag({ cellSize: 4, margin: 2 })); }).catch(() => {}); }, []);
+  return svg ? html`<div class="qr" dangerouslySetInnerHTML=${{ __html: svg }}></div>` : html`<b class="qrurl">${location.host}</b>`;
+}
+function GettingStarted({ b, openParents, planDinner, onHide, openKids }) {
+  const st = b.start; const [push, setPush] = usePushState(); const [msg, setMsg] = useState(''); const [hidden, setHidden] = useState(() => { try { return localStorage.getItem('fb-start-hidden') === '1'; } catch { return false; } }); const [all, setAll] = useState(false); const [pick, setPick] = useState(null);
   if (!st || hidden) return null;
-  const others = b.config.family.parents.filter((p) => p.id !== b.me?.personId).map((p) => p.name); const home = isStandalone(); const ios = isIOS();
-  const copy = async () => { try { await navigator.clipboard.writeText(location.origin); toast('Link copied'); } catch { toast(location.origin); } };
+  const others = b.config.family.parents.filter((p) => p.id !== b.me?.personId).map((p) => p.name); const home = isStandalone(); const ios = isIOS(); const pc = onComputer();
+  const host = location.host; const kidsLeft = b.kids.filter((k) => (b.config.setup?.kidsTurn || []).includes(k.id)).map((k) => k.name);
   const steps = [
-    { done: st.calendar, t: 'Link your family calendar', how: 'Events, leave-by times and everyone’s colors come from it.', act: html`<button class="pill sm" onClick=${() => openParents('calendar')}>Link it</button>` },
-    { done: st.display, t: 'Set up the shared family screen', how: html`On the kitchen tablet, open <b>${location.host}</b>, sign in, and choose “The shared family screen”.`, act: html`<button class="pill sm lite" onClick=${copy}>Copy link</button>` },
-    { done: home, t: 'Add the board to this phone’s home screen', how: ios ? 'In Safari, tap Share, then Add to Home Screen. Then open it from the new icon.' : 'In your browser menu, tap Add to Home screen or Install app.' },
-    { done: push === 'on', t: 'Turn on notifications on this phone', how: ios && !home ? 'Do the home screen step first, then open the board from its icon.' : 'For the grocery list, notes from the kitchen, approvals and pay day.', act: ios && !home ? null : html`<button class="pill sm" onClick=${async () => { setMsg(''); try { await enablePush(b.me?.name || ''); setPush('on'); chime('win'); } catch (e) { setMsg(e.message); } }}>Turn on</button>` },
-    ...(st.grownups > 1 ? [{ done: st.accounts >= st.grownups, t: `Invite ${andList(others)}`, how: 'So everyone can approve, plan dinners and get the grocery list.', act: html`<button class="pill sm" onClick=${() => openParents('account')}>Invite</button>` }] : []),
-    { done: st.checked, t: 'Kids tick off their first chore', how: 'On the shared screen, they tap their name, then a chore.' },
-    { done: st.meal, t: 'Plan a dinner', how: 'It shows on the kitchen screen and in the morning summary.', act: html`<button class="pill sm" onClick=${planDinner}>Plan one</button>` },
+    { done: st.display, e: '📺', t: 'Put the board on your kitchen tablet', how: html`On the tablet, open <b>${host}</b> and tap <b>“Setting up the kitchen screen? Get a pairing code”</b>. Type the code it shows here:`, act: html`<${PairBox} />` },
+    { done: !st.kidsTurn, e: '🎨', t: `Kids make their avatars`, how: `${andList(kidsLeft) || 'The kids'} still need${kidsLeft.length === 1 ? 's' : ''} a turn. It takes each kid about a minute.`, act: html`<button class="pill sm" onClick=${openKids}>Start the kids’ turn</button>` },
+    { done: st.calendar, e: '📅', t: 'Connect your calendar', how: 'Then everyone’s plans show up on the board, each in their own color.', act: html`<button class="pill sm" onClick=${() => openParents('calendar')}>Connect it</button>` },
+    ...(pc ? [{ done: st.pushes > 0, e: '📱', t: 'Get the board on your phone', how: 'Point your phone’s camera here, sign in, and it’ll walk you through the rest.', act: html`<${PhoneQR} />` }] : [
+      { done: home, e: '📲', t: 'Put the board on your home screen', how: ios ? 'In Safari, tap Share, then “Add to Home Screen”. Then open it from the new icon.' : 'In your browser menu, tap “Add to Home screen” or “Install app”.' },
+      { done: push === 'on', e: '🔔', t: 'Get notes from the kitchen', how: ios && !home ? 'Do the home screen step first, then open the board from its icon.' : 'The grocery list, notes from the kids, stars to approve and pay day.', act: ios && !home ? null : html`<button class="pill sm" onClick=${async () => { setMsg(''); try { await enablePush(b.me?.name || ''); setPush('on'); chime('win'); } catch (e) { setMsg(e.message); } }}>Turn on</button>` }]),
+    ...(st.grownups > 1 ? [{ done: st.accounts >= st.grownups, e: '💌', t: `Invite ${andList(others)}`, how: 'So everyone can approve stars, plan dinners and get the grocery list.', act: html`<button class="pill sm" onClick=${() => openParents('account')}>Invite</button>` }] : []),
+    { done: st.checked, e: '✅', t: 'Kids tick off their first chore', how: 'On the kitchen screen, they tap their name, then a chore. Cue the confetti.' },
+    { done: st.meal, e: '🍝', t: 'Plan tonight’s dinner', how: 'It shows on the kitchen screen, so nobody has to ask.', act: html`<button class="pill sm" onClick=${planDinner}>Plan it</button>` },
   ];
   const n = steps.filter((x) => x.done).length; if (n === steps.length) return null;
   const hide = () => { try { localStorage.setItem('fb-start-hidden', '1'); } catch {} setHidden(true); onHide && onHide(); };
-  return html`<div class="card ptcard gs"><div class="pth">🚀 Getting started <span>${n} of ${steps.length}</span><button class="gshide" onClick=${hide}>Hide</button></div>
+  const nx = steps.find((x) => x.t === pick && !x.done) || steps.find((x) => !x.done); const rest = steps.filter((x) => x !== nx);
+  return html`<div class="card ptcard gs"><div class="pth">🚀 Getting started <span>${n} of ${steps.length} done</span><button class="gshide" onClick=${hide}>Hide</button></div>
     <div class="ptbar"><i style=${{ width: Math.round((100 * n) / steps.length) + '%', background: 'var(--leaf)' }}></i></div>
-    ${steps.map((x) => html`<div class=${'gsrow' + (x.done ? ' done' : '')}><span class="gsck">${x.done ? '✓' : ''}</span><div class="gst"><b>${x.t}</b>${x.done ? '' : html`<small>${x.how}</small>`}</div>${x.done ? '' : x.act || ''}</div>`)}
+    <div class="gsnext"><small>Next up</small><div class="gsnt"><span>${nx.e}</span><b>${nx.t}</b></div><p>${nx.how}</p>${nx.act || ''}</div>
+    <button class="gsall" onClick=${() => setAll(!all)}>${all ? 'Hide the other steps' : `See all ${steps.length} steps`}</button>
+    ${all ? rest.map((x) => html`<button class=${'gsrow' + (x.done ? ' done' : '')} disabled=${x.done} onClick=${() => setPick(x.t)}><span class="gsck">${x.done ? '✓' : x.e}</span><div class="gst"><b>${x.t}</b></div>${x.done ? '' : html`<span class="gsgo">›</span>`}</button>`) : ''}
     ${msg ? html`<p class="pterr">${msg}</p>` : ''}</div>`;
 }
 function PushCard({ b }) {
@@ -512,7 +531,7 @@ function PushCard({ b }) {
       : html`<p>The kitchen screen can send you the grocery list or a note, and you'll hear when a quest needs approving.</p><button class="pill" onClick=${async () => { setMsg(''); try { await enablePush(who); setSt('on'); chime('win'); toast('Notifications on'); } catch (e) { setMsg(e.message); } }}>Turn on notifications</button>${msg ? html`<p class="pterr">${msg}</p>` : ''}`}</div>`;
 }
 // The grown-ups' home screen on their phones: what needs them, how the kids are doing, groceries, and today.
-function ParentToday({ b, refresh, setPage, openEv, withPin, openParents }) {
+function ParentToday({ b, refresh, setPage, openEv, withPin, openParents, openKids }) {
   const [, setHidTick] = useState(0);
   const now = new Date(); const [add, setAdd] = useState(''); const [sharing, setSharing] = useState(false); const [quick, setQuick] = useState(null); const [mealDay, setMealDay] = useState(null);
   const kn = (id) => b.kids.find((k) => k.id === id); const claims = b.claims.filter((c) => c.status === 'pending'); const rq = (b.rewardRequests || []).filter((r) => r.status === 'pending');
@@ -522,7 +541,7 @@ function ParentToday({ b, refresh, setPage, openEv, withPin, openParents }) {
   const meal = (d) => b.meals.find((m) => m.date === d);
   const evRow = (e) => { const past = !e.allDay && new Date(e.end) < now; return html`<button class=${'ptev' + (past ? ' past' : '')} onClick=${() => openEv(e)}><i style=${{ background: e.color }}></i><b>${e.allDay ? 'all day' : e.timeLabel}</b><span>${e.emoji} ${e.title}${e.place && !past ? html`<small>leave by ${e.place.leaveBy}</small>` : ''}</span></button>`; };
   return html`<div class="page ptoday">
-    <${GettingStarted} b=${b} openParents=${openParents} planDinner=${() => setMealDay(b.today)} onHide=${() => setHidTick((n) => n + 1)} />
+    <${GettingStarted} b=${b} openParents=${openParents} openKids=${openKids} planDinner=${() => setMealDay(b.today)} onHide=${() => setHidTick((n) => n + 1)} />
     ${b.start && !startHidden() ? '' : html`<${PushCard} b=${b} />`}
     ${claims.length || rq.length ? html`<div class="card ptcard ptneeds"><div class="pth">✋ Needs you</div>
       ${claims.map((c) => html`<div class="ptrow"><b style=${{ color: kn(c.kid)?.color }}>${kn(c.kid)?.name}</b><span>${c.title} <small>★ ${c.stars}</small></span><button class="pill sm" onClick=${() => decide('/api/quest/decide', c.id, true)}>Yes</button><button class="pill sm ghost" onClick=${() => decide('/api/quest/decide', c.id, false)}>No</button></div>`)}
@@ -534,7 +553,7 @@ function ParentToday({ b, refresh, setPage, openEv, withPin, openParents }) {
       ${b.kids.map((k) => { const mine = k.today.filter((t) => !t.doneByOther); const done = mine.filter((t) => t.done).length; const left = mine.filter((t) => !t.done); const m = minsUntil(k.leaveTime, now);
         return html`<button class="ptkid" onClick=${() => setPage(k.id)}><${Avatar} kid=${k} size="48px" /><div class="ptk"><div><b>${k.name}</b> <span class="ptc">${done}/${mine.length}</span>${b.isSchoolDay && m > 0 && m < 240 ? html`<em>out the door in ${m} min</em>` : ''}</div>
           <div class="ptbar"><i style=${{ width: (mine.length ? Math.round(100 * done / mine.length) : 0) + '%', background: k.color }}></i></div>
-          <small>${left.length ? 'Left: ' + left.slice(0, 3).map((t) => t.title).join(', ') + (left.length > 3 ? ` +${left.length - 3}` : '') : mine.length ? 'All done today 🎉' : 'Nothing on the list today'} · ${money(k.week.total)} by pay day ${payLabel(b)}</small></div></button>`; })}</div>
+          <small>${left.length ? 'Left: ' + left.slice(0, 3).map((t) => t.title).join(', ') + (left.length > 3 ? ` +${left.length - 3}` : '') : mine.length ? 'All done today 🎉' : 'Nothing on the list today'}${k.weeklyAllowance > 0 ? ` · ${money(k.week.total)} by pay day ${payLabel(b)}` : ''}</small></div></button>`; })}</div>
     ${b.kids.some((k) => k.quiz?.on && k.quiz.week.length) ? html`<div class="card ptcard"><div class="pth">🧠 Brain quests this week</div>
       ${b.kids.filter((k) => k.quiz?.on).map((k) => { const w = k.quiz.week; const right = w.reduce((s, r) => s + r.score, 0), tot = w.reduce((s, r) => s + r.total, 0); const missed = [...new Set(w.flatMap((r) => r.missed))];
         return html`<div class="ptrow"><b style=${{ color: k.color }}>${k.name}</b><span>${w.length ? `${w.length} of ${k.quiz.perWeek} done · ${right}/${tot} right · ★ ${w.reduce((s, r) => s + r.stars, 0)}` : 'none yet'}${missed.length ? html`<small class="ptsub">Practice: ${missed.slice(0, 4).join(', ').toLowerCase()}</small>` : ''}</span></div>`; })}</div>` : ''}
@@ -588,6 +607,10 @@ function SetupGate({ b, pinApi, refresh }) {
   if (!mod || pin === null) return html`<div class="wiz"><div class="wizcard"><h2>Getting setup ready…</h2></div>${pinApi.ui}</div>`;
   return html`<${mod.Setup} b=${b} pin=${pin} onDone=${() => refresh()} />`;
 }
+function KidsGate(props) {
+  const [mod, setMod] = useState(null); useEffect(() => { import('./kids.js').then(setMod); }, []);
+  return mod ? html`<${mod.KidsSetup} ...${props} />` : html`<div class="wiz"><div class="wizcard"><h2>One sec…</h2></div></div>`;
+}
 // ---------- app ----------
 const PAGES = ['week', 'home', 'wardrobe', 'groceries'];
 // Light or dark colors. "Follow the sun" uses today's sunrise and sunset for the family's town (7:00 and 19:00 if no town is set).
@@ -602,7 +625,7 @@ function useTheme(b, clock) {
 }
 function App() {
   const [b, setB] = useState(null); const [err, setErr] = useState(''); const [page, setPageState] = useState('home'); const [wardKid, setWardKid] = useState(null);
-  const [ev, setEv] = useState(null); const [wx, setWx] = useState(false); const [fb, setFb] = useState(false); const [parents, setParents] = useState(false); const [ambient, setAmbient] = useState(false); const [timer, setTimer] = useState(null); const [clock, setClock] = useState(new Date()); const [gmClosed, setGmClosed] = useState(false); const [preview, setPreview] = useState(null);
+  const [ev, setEv] = useState(null); const [wx, setWx] = useState(false); const [fb, setFb] = useState(false); const [parents, setParents] = useState(false); const [ambient, setAmbient] = useState(false); const [timer, setTimer] = useState(null); const [clock, setClock] = useState(new Date()); const [gmClosed, setGmClosed] = useState(false); const [preview, setPreview] = useState(null); const [kidsOpen, setKidsOpen] = useState(() => { try { const x = sessionStorage.getItem('fb-kids-now') === '1'; sessionStorage.removeItem('fb-kids-now'); return x; } catch { return false; } }); const [kidsLater, setKidsLater] = useState(false);
   useEffect(() => { const m = () => { setParents(false); setPreview('morning'); }; const n = () => { setParents(false); setPreview('night'); }; addEventListener('fb-preview-morning', m); addEventListener('fb-preview-night', n); return () => { removeEventListener('fb-preview-morning', m); removeEventListener('fb-preview-night', n); }; }, []);
   const pagesRef = useRef(); const idleRef = useRef(Date.now()); const timerCb = useRef(null); const pinApi = usePin();
   useTheme(b, clock);
@@ -637,6 +660,8 @@ function App() {
   if (!b) return html`<div class="boot">Loading the board…</div>`;
   if (b.config.setup?.done === false) return html`<${SetupGate} b=${b} pinApi=${pinApi} refresh=${refresh} />`;
   const now = clock; const amb = b.config.ambient; const display = !parentView;
+  // The kids' turn to make their avatars: on the kitchen screen until they're done (or tap Later), or when a grown-up starts it.
+  if ((b.config.setup?.kidsTurn || []).length && (kidsOpen || (display && !kidsLater))) return html`<${KidsGate} b=${b} refresh=${refresh} onClose=${() => { setKidsOpen(false); setKidsLater(true); }} />`;
   // Night: on the kitchen display, the dark screen comes on after a quiet minute during night hours.
   const night = display && amb.dimAtNight && inWindow(amb.sleepFrom, amb.sleepTo, now); const asleep = night && Date.now() - idleRef.current > 60000 && !document.querySelector('.sheet.quiz');
   // Morning: from wake time until noon, on chosen days, until someone taps "Let's go".
@@ -651,7 +676,7 @@ function App() {
     <div class="pages" ref=${pagesRef} onScroll=${onScroll}>
       ${pageList.map((p) => { const k = b.kids.find((x) => x.id === p);
         if (k) return html`<${KidPage} key=${k.id} b=${b} k=${k} refresh=${refresh} setPage=${setPage} startTimer=${startTimer} withPin=${pinApi.withPin} />`;
-        return { today: html`<${ParentToday} key="today" b=${b} refresh=${refresh} setPage=${setPage} openEv=${setEv} withPin=${pinApi.withPin} openParents=${(sec) => setParents(sec || true)} />`, week: html`<${Week} key="week" b=${b} openEv=${setEv} refresh=${refresh} withPin=${pinApi.withPin} />`, home: html`<${Home} key="home" b=${b} openEv=${setEv} setPage=${setPage} />`,
+        return { today: html`<${ParentToday} key="today" b=${b} refresh=${refresh} setPage=${setPage} openEv=${setEv} withPin=${pinApi.withPin} openParents=${(sec) => setParents(sec || true)} openKids=${() => setKidsOpen(true)} />`, week: html`<${Week} key="week" b=${b} openEv=${setEv} refresh=${refresh} withPin=${pinApi.withPin} />`, home: html`<${Home} key="home" b=${b} openEv=${setEv} setPage=${setPage} />`,
           wardrobe: html`<${Wardrobe} key="wardrobe" b=${b} kidId=${wardKid} refresh=${refresh} setPage=${setPage} />`, groceries: html`<${Groceries} key="groceries" b=${b} refresh=${refresh} />` }[p]; })}
     </div>
     <div class="dots">${pageList.map((p) => html`<button class=${p === page ? 'on' : ''} onClick=${() => setPage(p)} title=${p}></button>`)}</div>

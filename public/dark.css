@@ -192,4 +192,32 @@ html.dark .qch button.wrong{background:#391e22}
 html.dark .qwhy.ok{background:#1f3d2a}
 html.dark .qwhy.no{background:#453e23}
 html.dark .hairpick button.on{border-color:#7ea6d6}
+html.dark .wiz{background:radial-gradient(circle at 15% 10%,#453e23 0,transparent 35%),radial-gradient(circle at 90% 20%,#3a1e24 0,transparent 35%),radial-gradient(circle at 50% 100%,#1d2c38 0,transparent 45%),linear-gradient(160deg,#1e3a26,#22422f)}
+html.dark .crew{background:linear-gradient(135deg,#3a331e,#361c23 60%,#1c2937)}
+html.dark .stg b{border:3px solid #1b222d}
+html.dark .stg.side b{background:#1b222d}
+html.dark .stg small{color:#d6e4f7}
+html.dark .bubble-say{background:#37321c;border:2px solid #54492b;color:#d6e4f7}
+html.dark .cdots button{border:3px solid #1b222d}
+html.dark .xbtn{background:#1b222d}
+html.dark .kidq>span{color:#d6e4f7}
+html.dark .sidepick button.on{background:#453e23}
+html.dark .wizlist button b{color:#d6e4f7}
+html.dark .wxcard{background:linear-gradient(135deg,#1d2c38,#3a331e)}
+html.dark .wxcard b{color:#d6e4f7}
+html.dark .choice b{color:#d6e4f7}
+html.dark .choice.on{background:#1b222d;border-color:#7ea6d6}
+html.dark .emojibtn{background:#3a331e;border:2px solid #54492b}
+html.dark .emojigrid{background:#1b222d}
+html.dark .peek{background:linear-gradient(160deg,#332e1a,#1d3825)}
+html.dark .peekh{color:#d6e4f7}
+html.dark .peeks{background:#37321c}
+html.dark .peekkid{background:#1b222d}
+html.dark .kidwiz{background:radial-gradient(circle at 20% 15%,#54492b 0,transparent 35%),radial-gradient(circle at 85% 25%,#43222a 0,transparent 35%),radial-gradient(circle at 50% 95%,#263a4b 0,transparent 45%),#2d1a32}
+html.dark .kidpick button span{background:rgba(28,36,51,.3)}
+html.dark .kiddots i.on{background:var(--sun);color:#1f2a44}
+html.dark .kidopts button.on{background:#3a331e}
+html.dark .gsnext{background:linear-gradient(135deg,#3a331e,#361c23)}
+html.dark .gsnt b{color:#d6e4f7}
+html.dark .qr{background:#1b222d}
 html.dark body{background:linear-gradient(160deg,#111a26 0%,#13201d 55%,#121a2b 100%)}
