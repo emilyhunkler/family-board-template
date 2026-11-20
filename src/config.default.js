@@ -76,6 +76,8 @@ export default {
     { when: 'high>80', text: 'Water bottle and sunscreen' },
   ],
   week: { startsOn: 1, closesAt: '18:00', payDay: 5 },
+  // Kids' bank: on pay day each kid picks cash or the bank, and can ask for cash from the bank any time.
+  bank: { on: true },
   school: { days: [1, 2, 3, 4, 5], daysOff: [], extraDays: [] },
   kids: [
     { id: 'kid1', name: 'Alex', color: '#ff7a90', age: 10, leaveTime: '07:45', weeklyAllowance: 5, morningStart: '06:30',

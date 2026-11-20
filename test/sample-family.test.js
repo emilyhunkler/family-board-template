@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
+import { parts } from '../src/lib/ical.js';
 
 test('the pretend family loads into a fresh database', () => {
   const db = new DatabaseSync(':memory:'); const dir = new URL('../migrations/', import.meta.url);
@@ -14,4 +15,7 @@ test('the pretend family loads into a fresh database', () => {
   assert.deepEqual(cfg.kids.map((k) => k.name), ['Ava', 'Lily']);
   assert.ok(cfg.tasks.some((t) => t.title === 'Feed the dog'));
   assert.ok(db.prepare("SELECT value FROM settings WHERE key='weekbar'").get());
+  // Pay day is today and already closed, so the pay day screen shows; Lily has savings in her bank.
+  assert.equal(cfg.week.payDay, parts(new Date(), cfg.zone).wd); assert.equal(cfg.week.closesAt, '00:00');
+  assert.equal(db.prepare("SELECT SUM(amount) AS s FROM ledger WHERE kid='kid2' AND kind='jar'").get().s, 4);
 });

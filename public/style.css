@@ -526,3 +526,27 @@ button.gsrow{width:100%;background:none;text-align:left;border-radius:12px}butto
 .wkit.got .mk{color:#2f8f5b}.wkit.miss .mk{color:#c0573f}.wkit.miss .tt{color:var(--muted)}.wkit.open .mk{color:var(--sky)}.wkit.held .mk{color:var(--sun)}
 .wkmoney{margin-top:8px;font-size:13px;font-weight:800;color:var(--muted)}.wkmoney b{color:var(--navy);font-size:16px}
 .banner.stage{background:#e3ecff;color:#1f3a5f;text-align:center}
+/* Kids' bank: the pay day screen, the bank card on each kid's page, and asking for cash */
+.ov.payday{z-index:40;background:radial-gradient(circle at 50% 40%,rgba(255,200,87,.6),rgba(31,42,68,.55));overflow:hidden}
+.coins-rain{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.coins-rain span{position:absolute;top:-70px;animation-name:coinfall;animation-timing-function:cubic-bezier(.45,.05,.75,1);animation-iteration-count:2;animation-fill-mode:both}
+@keyframes coinfall{0%{transform:translateY(0) rotate(0)}100%{transform:translateY(115vh) rotate(600deg)}}
+.pdsheet{text-align:center;display:flex;flex-direction:column;align-items:center;gap:8px;width:min(480px,100%);position:relative;z-index:1;animation:popin .45s cubic-bezier(.3,1.5,.5,1) both}
+.pdhead{font-family:var(--head);font-size:40px;font-weight:800;color:var(--navy);animation:boing .6s cubic-bezier(.3,1.7,.5,1)}
+.pdline{font-weight:800;color:var(--ink2);font-size:18px;margin:0}
+.pdamt{font-family:var(--head);font-size:64px;font-weight:800;color:#2f8f5b;line-height:1.05;font-variant-numeric:tabular-nums}
+.pdsub{font-weight:700;color:var(--muted);font-size:14px;margin:0}
+.pdbtns{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;margin:8px 0}.pdbtns .pill{font-size:20px;padding:16px 22px}
+.pill.pdcash{background:#7fd6b0;color:#14382a}
+.paybadge{display:inline-block;margin-top:8px;background:#ffc857;color:#4a3300;border-radius:999px;padding:5px 12px;font-weight:800;font-size:13px;animation:pulse 1.6s infinite}
+.bankmini{margin-top:6px;font-size:13px;font-weight:800;color:var(--muted)}
+.bankrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:space-between}
+.bankbal b{display:block;font-family:var(--head);font-size:34px;font-weight:800;color:#2f8f5b;line-height:1.1}.bankbal small{font-weight:800;color:var(--muted);font-size:12px}
+.bankbtns{display:flex;gap:8px;flex-wrap:wrap}
+.bankreq{font-size:13px;font-weight:800;color:var(--muted);margin-top:6px}
+.bankmore{margin-top:8px;font-weight:800;font-size:13px;color:var(--navy);background:none;border:0;padding:4px 0;text-decoration:underline;cursor:pointer}
+.bankhist{margin-top:4px;display:flex;flex-direction:column;gap:4px}
+.bh{display:flex;align-items:center;gap:8px;background:var(--soft);border-radius:12px;padding:8px 12px;font-weight:800;font-size:13px}.bh .tt{flex:1}.bh small{color:var(--muted)}.bh.in b{color:#2f8f5b}.bh.out b{color:#b4471c}
+.asksheet{width:min(460px,100%);text-align:center}.asksheet h3{justify-content:center}
+.askrow{display:flex;align-items:center;justify-content:center;gap:14px;margin:14px 0 10px}.askamt{font-family:var(--head);font-size:48px;font-weight:800;color:var(--navy);min-width:150px;font-variant-numeric:tabular-nums}
+.asksheet .chips{justify-content:center}.asksheet .btns{justify-content:center;margin-top:12px}
