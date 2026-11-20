@@ -43,7 +43,11 @@ export function aisleFor(text) { for (const [a, re] of AISLES) if (re.test(text)
 // Who is an event about? Whole-word matches on each person's name and keywords; group phrases mean every kid.
 // Falls back to the calendar's owner, else nobody (shown as Family).
 const esc = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const hasWord = (text, w) => !!w && new RegExp(`(^|[^\\p{L}\\p{N}])${esc(w.toLowerCase())}(?=$|[^\\p{L}\\p{N}])`, 'u').test(text);
+// Each word's pattern is built once and kept: building them fresh for every event was a big share of a board load.
+const wordRe = new Map();
+const hasWord = (text, w) => { if (!w) return false; const k = w.toLowerCase(); let re = wordRe.get(k);
+  if (!re) { if (wordRe.size > 500) wordRe.clear(); re = new RegExp(`(^|[^\\p{L}\\p{N}])${esc(k)}(?=$|[^\\p{L}\\p{N}])`, 'u'); wordRe.set(k, re); }
+  return re.test(text); };
 export function eventPeople(ev, cfg) {
   const t = (ev.title || '').toLowerCase(); const ids = [];
   for (const k of cfg.kids) if ([k.name, ...(k.match || [])].some((w) => hasWord(t, w))) ids.push(k.id);
