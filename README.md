@@ -27,9 +27,9 @@ Your board runs in your own free Cloudflare account. Your family's data stays th
    - each kid's avatar
    - a grown-up PIN and your sign-in
 5. On the kitchen tablet, tap **Get a pairing code**. On your phone, open `YOUR-BOARD.workers.dev/link` and type the code. The tablet opens the board and stays signed in. (You can also sign in on the tablet and tick "This is our family's kitchen display".) Then add it to the home screen. On an iPad, that's Share, then Add to Home Screen.
-6. Invite the other grown-ups from **Parents → Sign-in and devices**.
+6. Invite the other grown-ups from **Parents → Advanced → Sign-in and devices**.
 
-You can change anything later in **Parents**, or walk through the steps again with **Parents → Settings → Run setup again**.
+You can change anything later in **Parents**, or walk through the steps again with **Parents → Advanced → PIN and setup → Run setup again**.
 
 ## Optional: Sign in with Google
 

@@ -1,5 +1,5 @@
 // First-run setup: a grown-up tells the board about their crew, their town, their plans and a few chores.
-// Also runs again from Parents → Settings. It edits the same config the Parents screen edits, and saves after every step.
+// Also runs again from Parents → Advanced → PIN and setup. It edits the same config the Parents screen edits, and saves after every step.
 // Kids make their own avatars afterwards, in kids.js.
 import { useState, useEffect, useRef } from 'https://cdn.jsdelivr.net/npm/preact@11.2.0/hooks/+esm';
 import { html, api, put, toast, chime, confetti, andList } from './app.js';
