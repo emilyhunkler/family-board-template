@@ -513,3 +513,15 @@ button.bubble{display:block;text-align:left;font:inherit;font-weight:800;color:i
 .qr{background:#fff;border-radius:12px;padding:6px;align-self:flex-start;line-height:0}.qr svg{width:150px;height:150px}.qrurl{font-size:18px}
 .gsall{background:none;color:var(--muted);font-weight:800;font-size:13px;padding:8px 0 2px;align-self:flex-start}
 button.gsrow{width:100%;background:none;text-align:left;border-radius:12px}button.gsrow:not(:disabled):hover{background:var(--soft)}.gsgo{margin-left:auto;color:var(--muted);font-size:20px;font-weight:900}
+/* My week: one bar per day, tap a day for its chores */
+.wkc .wk{display:flex;gap:6px;align-items:flex-end;height:120px;margin:8px 0 4px}
+.wkc .col{flex:1;height:100%;display:flex;flex-direction:column;align-items:center;gap:4px;background:none;border:0;padding:0;cursor:pointer;font:inherit}
+.wkc .col .bar{flex:1;width:100%;max-width:44px;display:flex;flex-direction:column;justify-content:flex-end;border-radius:8px;background:var(--soft);overflow:hidden}
+.wkc .col.sel .bar{outline:3px solid var(--navy);outline-offset:2px}
+.wkc .col .dl{font-weight:900;font-size:13px;color:var(--muted)}.wkc .col.now .dl{color:var(--navy)}
+.wkc i{display:block;width:100%;flex:none}.wkc i.e{background:var(--kc)}.wkc i.bn{background:var(--sun)}.wkc i.m{background:#e7b3a6}.wkc i.o{background:var(--soft2);border-top:2px dashed var(--line)}
+.wkkey{display:flex;flex-wrap:wrap;gap:10px;font-size:11px;font-weight:900;color:var(--muted);margin-bottom:8px}.wkkey span{display:flex;align-items:center;gap:4px}.wkkey i{width:12px;height:12px;border-radius:3px;border:0}
+.wkday{border-top:2px solid var(--soft2);padding-top:8px}.wkdh{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px}.wkdh b{font-family:var(--head);font-size:17px}.wkdh span{font-size:12px;font-weight:900;color:var(--muted)}
+.wkit{display:flex;align-items:center;gap:8px;padding:4px 0;font-weight:800;font-size:14px}.wkit .mk{width:22px;text-align:center;font-weight:900}.wkit .tt{flex:1;min-width:0}.wkit small{font-size:11px;font-weight:900;color:var(--muted)}
+.wkit.got .mk{color:#2f8f5b}.wkit.miss .mk{color:#c0573f}.wkit.miss .tt{color:var(--muted)}.wkit.open .mk{color:var(--sky)}.wkit.held .mk{color:var(--sun)}
+.wkmoney{margin-top:8px;font-size:13px;font-weight:800;color:var(--muted)}.wkmoney b{color:var(--navy);font-size:16px}

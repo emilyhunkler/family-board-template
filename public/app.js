@@ -182,6 +182,26 @@ function MascotBubble({ b, now, style }) {
   return html`<button class=${'bubble' + (line.urgent ? ' urgent' : '') + (line.answer ? ' ask' : '')} style=${style} onClick=${tap}>${line.text}${line.answer ? (open ? html`<b class="ans">${line.answer}</b>` : html`<small class="tapme">${line.kind === 'joke' ? 'Tap me for the funny part!' : 'Tap me for the answer!'}</small>`) : ''}</button>`;
 }
 
+// A kid's week at a glance: one bar per day (stars earned, bonus, missed, still to earn), and tap a day
+// to see its chores. Today is picked to start, so it doubles as today's progress.
+const DAY1 = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+function WeekChart({ b, k }) {
+  const w = k.week; const [sel, setSel] = useState(b.today); const day = w.days.find((d) => d.date === sel) || w.days[0];
+  const tall = Math.max(1, ...w.days.map((d) => d.possible + d.bonus));
+  const seg = (n, cls) => (n > 0 ? html`<i class=${cls} style=${{ height: (100 * n / tall) + '%' }}></i>` : '');
+  const earnedAll = w.earned + w.bonusStars; const more = Math.max(0, w.canReach + w.bonusDollars - w.total);
+  const state = (t) => (t.counted ? ['✓', 'got', `★ ${t.stars}`] : t.done ? ['✓', 'held', 'after the morning list'] : day.date < b.today ? ['✗', 'miss', 'missed'] : ['○', 'open', `★ ${t.stars} to earn`]);
+  const name = day.date === b.today ? 'Today' : longDate(day.date).split(',')[0];
+  return html`<div class="card group wkc" style=${{ '--kc': k.color }}><div class="hd"><b>My week</b><span>★ ${earnedAll} earned${w.left ? ` · ★ ${w.left} still to earn` : ''}</span></div>
+    <div class="wk">${w.days.map((d) => html`<button class=${'col' + (d.date === sel ? ' sel' : '') + (d.date === b.today ? ' now' : '')} onClick=${() => setSel(d.date)} aria-label=${longDate(d.date)}>
+      <span class="bar">${seg(d.open, 'o')}${seg(d.missed, 'm')}${seg(d.bonus, 'bn')}${seg(d.earned, 'e')}</span><span class="dl">${DAY1[fromYmd(d.date).getDay()]}</span></button>`)}</div>
+    <div class="wkkey"><span><i class="e"></i>earned</span><span><i class="bn"></i>bonus</span><span><i class="m"></i>missed</span><span><i class="o"></i>still to earn</span></div>
+    <div class="wkday"><div class="wkdh"><b>${name}</b><span>${day.scheduled || day.bonus ? `★ ${day.earned + day.bonus} earned${day.missed ? ` · ${day.missed} missed` : ''}${day.open ? ` · ★ ${day.open} to go` : ''}` : 'free day 🎈'}</span></div>
+      ${day.items.map((t) => { const [mark, cls, note] = state(t); return html`<div class=${'wkit ' + cls}><span class="mk">${mark}</span><span class="em">${t.emoji}</span><span class="tt">${t.title}</span><small>${note}</small></div>`; })}
+      ${day.bonus ? html`<div class="wkit got"><span class="mk">★</span><span class="em">🌟</span><span class="tt">Bonus quests</span><small>★ ${day.bonus}</small></div>` : ''}</div>
+    ${w.max > 0 ? html`<div class="wkmoney"><b>${money(w.total)}</b> so far${more > 0 ? html` · up to <b>${money(w.total + more)}</b> if you finish the rest` : w.total >= w.max ? ' · the whole allowance! 🎉' : ''}</div>` : ''}</div>`;
+}
+
 function KidPage({ b, k, refresh, setPage, startTimer, withPin }) {
   const now = new Date(); const school = b.isSchoolDay; const morningOpen = school && minsUntil(k.leaveTime, now) > -30;
   const groups = [['Before school', k.today.filter((t) => t.when === 'morning')], ['After school', k.today.filter((t) => t.when !== 'morning' && t.kind === 'task')], ['To-dos', k.today.filter((t) => t.kind === 'todo')]].filter(([, l]) => l.length);
@@ -205,6 +225,7 @@ function KidPage({ b, k, refresh, setPage, startTimer, withPin }) {
       ${groups.map(([name, list]) => html`<div class="card group"><div class="hd"><b>${name}</b><span>${list.filter((t) => t.done).length} of ${list.length}${name === 'Before school' && !morningOpen ? ' · done for today' : ''}</span></div>
         ${list.map((t) => html`<button class=${'ti' + (t.done ? ' done' : '') + (t.doneByOther ? ' other' : '')} onClick=${() => tap(t)}><span class="bx">${t.done ? '✓' : ''}</span><span class="em">${t.emoji}</span><span class="tt">${t.title}${t.shared ? html`<small>${t.doneByOther ? 'done by ' + (b.kids.find((x) => x.id === t.doneBy)?.name || 'someone else') : 'shared, first to finish earns it'}</small>` : t.turn ? html`<small>your turn today</small>` : ''}</span>${t.timerMin && !t.done ? html`<span class="timer" onClick=${(e) => { e.stopPropagation(); startTimer(t.timerMin * 60, t.title, () => tap(t)); }}>⏱ ${t.timerMin} min</span>` : ''}<span class="st">★ ${t.stars}</span></button>`)}</div>`)}
       ${!k.today.length ? html`<div class="card group"><div class="hd"><b>Nothing scheduled today</b><span>free day 🎈</span></div></div>` : ''}
+      <${WeekChart} b=${b} k=${k} />
       <${BrainCard} b=${b} k=${k} refresh=${refresh} />
       <div class="card group"><div class="hd"><b>Bonus quests</b><span>tap to claim · ${grownups(b)} approves</span></div><div class="quests">${(b.config.quests || []).filter((q) => q.who === 'both' || q.who === k.id).map((q) => { const c = claimed(q); return html`<button class=${'quest' + (c ? ' ' + c.status : '')} disabled=${!!c} onClick=${() => claim(q)}>${q.emoji} ${q.title}<span>${c ? (c.status === 'pending' ? 'waiting' : c.status === 'approved' ? `★ ${q.stars} ✓` : 'not today') : '★ ' + q.stars}</span></button>`; })}</div></div>
       <div class="card group"><div class="hd"><b>Spend my stars</b><span>★ ${k.wardrobe.balance - pendingStars} to spend · ${grownups(b)} says yes</span></div><div class="quests">${(b.config.rewards || []).filter((r) => r.who === 'both' || r.who === k.id).map((r) => { const p = k.rewardRequests.find((x) => x.reward === r.id && x.status === 'pending'); const can = k.wardrobe.balance - pendingStars >= r.cost; return html`<button class=${'quest' + (p ? ' pending' : '') + (!p && !can ? ' locked' : '')} disabled=${!!p} onClick=${() => askReward(r, can)}>${r.emoji} ${r.title}<span>${p ? 'asked!' : '★ ' + r.cost}</span></button>`; })}</div>
