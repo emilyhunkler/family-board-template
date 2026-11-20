@@ -24,3 +24,28 @@ binding = "AI"
 
 [version_metadata]
 binding = "CF_VERSION_METADATA"
+
+# The test copy: its own board and its own database, so trying a change never touches real families.
+# Deploy it with: npm run deploy:staging   (see RELEASING.md)
+[env.staging]
+name = "family-board-staging"
+workers_dev = true
+
+[env.staging.vars]
+STAGE = "staging"
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "family_board_staging"
+# Paste the staging database's ID here once it's made in Cloudflare (Storage & Databases → D1).
+database_id = "REPLACE_WITH_STAGING_DATABASE_ID"
+migrations_dir = "migrations"
+
+[env.staging.triggers]
+crons = ["*/15 * * * *"]
+
+[env.staging.ai]
+binding = "AI"
+
+[env.staging.version_metadata]
+binding = "CF_VERSION_METADATA"

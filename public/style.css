@@ -513,3 +513,4 @@ button.bubble{display:block;text-align:left;font:inherit;font-weight:800;color:i
 .qr{background:#fff;border-radius:12px;padding:6px;align-self:flex-start;line-height:0}.qr svg{width:150px;height:150px}.qrurl{font-size:18px}
 .gsall{background:none;color:var(--muted);font-weight:800;font-size:13px;padding:8px 0 2px;align-self:flex-start}
 button.gsrow{width:100%;background:none;text-align:left;border-radius:12px}button.gsrow:not(:disabled):hover{background:var(--soft)}.gsgo{margin-left:auto;color:var(--muted);font-size:20px;font-weight:900}
+.banner.stage{background:#e3ecff;color:#1f3a5f;text-align:center}
