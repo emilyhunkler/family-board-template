@@ -1,0 +1,17 @@
+// The pretend family for the test copy loads cleanly and gives the chart something to show.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync, readdirSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { DatabaseSync } from 'node:sqlite';
+
+test('the pretend family loads into a fresh database', () => {
+  const db = new DatabaseSync(':memory:'); const dir = new URL('../migrations/', import.meta.url);
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.sql')).sort()) db.exec(readFileSync(new URL(f, dir), 'utf8'));
+  const sql = execFileSync(process.execPath, [new URL('../scripts/sample-family.mjs', import.meta.url).pathname], { encoding: 'utf8' });
+  db.exec(sql); db.exec(sql); // running it twice just replaces the family
+  const cfg = JSON.parse(db.prepare("SELECT value FROM settings WHERE key='config' AND household_id=1").get().value);
+  assert.deepEqual(cfg.kids.map((k) => k.name), ['Ava', 'Lily']);
+  assert.ok(cfg.tasks.some((t) => t.title === 'Feed the dog'));
+  assert.ok(db.prepare("SELECT value FROM settings WHERE key='weekbar'").get());
+});

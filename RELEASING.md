@@ -27,8 +27,9 @@ them. Every change goes: pull request → test copy → live, with a backup firs
    - `CLOUDFLARE_ACCOUNT_ID`: from the Cloudflare dashboard, Workers & Pages, shown on the right.
    - `STAGING_SETUP_CODE`: any code you like, used to set up a pretend family on the test board.
 3. **Run the test copy once:** Actions → Deploy test copy → Run workflow on `main`. The test board is then
-   at `family-board-staging.<your-subdomain>.workers.dev`. Open it, type the setup code and make a pretend
-   family with two kids and a few chores.
+   at `family-board-staging.<your-subdomain>.workers.dev`. Open it and type the setup code. To get a
+   ready-made pretend family (two kids, this week part done, a chore added mid-week), run "Deploy test
+   copy" again with "sample_family" ticked. The grown-up PIN for the pretend family is 1234.
 4. **Make sure Cloudflare isn't also deploying on its own.** Workers & Pages → familyboard-kitchen →
    Settings → Build. If a GitHub repo is connected there, disconnect it, so the live board changes only
    when someone runs "Deploy live board".
