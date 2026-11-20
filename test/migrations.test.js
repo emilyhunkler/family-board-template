@@ -20,7 +20,21 @@ test('new migrations only add, never rewrite or remove', () => {
 
 test('the live and test copies use different databases', () => {
   const toml = readFileSync(new URL('../wrangler.toml', import.meta.url), 'utf8');
-  const names = [...toml.matchAll(/database_name\s*=\s*"([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(names, ['family_board', 'family_board_staging']);
-  assert.match(toml, /\[env\.staging\][\s\S]*name = "family-board-staging"/);
+  // The lines from [env.<name>] up to the next table that isn't part of it.
+  const section = (name) => {
+    const out = []; let inside = false;
+    for (const line of toml.split('\n')) {
+      const head = line.match(/^\[\[?([^\]]+)\]/);
+      if (head) inside = head[1] === `env.${name}` || head[1].startsWith(`env.${name}.`);
+      if (inside) out.push(line);
+    }
+    assert.ok(out.length, `missing [env.${name}]`); return out.join('\n') + '\n';
+  };
+  const live = section('live'); const staging = section('staging');
+  assert.match(live, /^name = "familyboard-kitchen"/m);
+  assert.match(live, /database_name = "family_board"\n/);
+  assert.match(staging, /^name = "family-board-staging"/m);
+  assert.match(staging, /database_name = "family_board_staging"/);
+  const id = (t) => (t.match(/database_id = "([^"]+)"/) || [])[1];
+  assert.ok(id(live) && id(staging) && id(live) !== id(staging));
 });
