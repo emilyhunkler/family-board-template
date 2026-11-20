@@ -5,7 +5,7 @@ import { Parents } from './parents.js';
 import { useVoice, speak, dictate, primeSpeech } from './voice.js';
 import { TRIVIA, JOKES, FACTS, WOULD_YOU_RATHER, GEAR } from './fun.js';
 import { BrainCard } from './brain.js';
-import { AppSheet, AppNudge, nudgeWanted, reopenGuide, inApp } from './install.js';
+import { AppSheet, AppNudge, nudgeWanted, hasAppAlready, reopenGuide, inApp } from './install.js';
 export const html = htm.bind(h);
 
 // ---------- helpers ----------
@@ -726,7 +726,8 @@ function App() {
   pinApi.setParent(b?.me?.kind === 'parent');
   const bootVersion = useRef(null); const [update, setUpdate] = useState(false);
   // "Get the app": a gentle offer the first time, and the steps whenever someone asks for them.
-  const [appOpen, setAppOpen] = useState(reopenGuide); const [nudge, setNudge] = useState(nudgeWanted);
+  const [appOpen, setAppOpen] = useState(reopenGuide); const [nudge, setNudge] = useState(false);
+  useEffect(() => { if (nudgeWanted()) hasAppAlready().then((yes) => { if (!yes && nudgeWanted()) setNudge(true); }); }, []);
   useEffect(() => { const o = () => { setNudge(false); setAppOpen(true); }; addEventListener('fb-get-app', o); return () => removeEventListener('fb-get-app', o); }, []);
   const refresh = refreshBoard = useCallback(async () => { try { const j = await api('/api/board'); setMascot(j.config.family); if (!bootVersion.current) bootVersion.current = j.version; else if (j.version && j.version !== bootVersion.current) setUpdate(true); setB(j); setErr(''); } catch (e) { setErr(e.message); } }, []);
   useEffect(() => { const back = () => { if (document.visibilityState === 'visible') refresh(); }; document.addEventListener('visibilitychange', back); return () => document.removeEventListener('visibilitychange', back); }, [refresh]);

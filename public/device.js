@@ -27,3 +27,8 @@ export const deviceWord = (env) => { const k = deviceKind(env); if (isTablet(env
 // iOS 26 moved Safari's Share button behind the ••• button; older iPhones show Share at the bottom. Safari 26
 // still says "OS 18_6" in its user agent, so its own "Version/26" comes first.
 export const iosVersion = (ua = '') => { const m = /Version\/(\d+)/.exec(ua) || /OS (\d+)_/.exec(ua); return m ? Number(m[1]) : 0; };
+// Whether to offer "Get the app" on this device. Never inside the app itself, never after "Not now", and
+// never once this device is known to have the app: it opened from the icon, the browser said it installed,
+// the browser lists it as installed, or (iPhone and iPad, whose app keeps its own storage) the board knows
+// this browser's one-time code was used by the new app.
+export const offerApp = ({ standalone = false, kind = 'none', noThanks = false, installed = false } = {}) => !standalone && kind !== 'none' && !noThanks && !installed;

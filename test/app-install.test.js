@@ -6,7 +6,7 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import * as A from '../src/lib/auth.js';
 import { manifest } from '../src/lib/app.js';
-import { deviceKind, deviceWord, iosVersion } from '../public/device.js';
+import { deviceKind, deviceWord, iosVersion, offerApp } from '../public/device.js';
 
 const UA = {
   iphoneSafari26: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1',
@@ -45,6 +45,22 @@ test('each device gets the steps that fit it', () => {
   assert.equal(iosVersion(UA.iphoneSafari17), 17);
 });
 
+test('the offer only shows on a device that doesn’t have the app yet', () => {
+  const base = { standalone: false, kind: 'ios-safari', noThanks: false, installed: false };
+  assert.equal(offerApp(base), true, 'a phone browser with no app gets the offer');
+  assert.equal(offerApp({ ...base, standalone: true }), false, 'never inside the app itself');
+  assert.equal(offerApp({ ...base, installed: true }), false, 'never once this device is known to have the app');
+  assert.equal(offerApp({ ...base, noThanks: true }), false, '“Not now” puts it away for good');
+  assert.equal(offerApp({ ...base, kind: 'none' }), false, 'never in a browser that can’t add apps');
+  for (const kind of ['ios-chrome', 'ios-other', 'android', 'mac-safari', 'desktop']) assert.equal(offerApp({ ...base, kind }), true, kind);
+  const js = readFileSync(new URL('../public/install.js', import.meta.url), 'utf8');
+  assert.match(js, /if \(inApp\(\)\) mem\.set\('fb-app', 'installed'\)/, 'opening from the icon is remembered on the device');
+  assert.match(js, /addEventListener\('appinstalled'[^\n]*mem\.set\('fb-app', 'installed'\)/, 'the browser saying it installed is remembered');
+  assert.match(js, /getInstalledRelatedApps/, 'Chrome is asked whether the app is installed');
+  const app = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+  assert.match(app, /useState\(false\);\s*useEffect\(\(\) => \{ if \(nudgeWanted\(\)\) hasAppAlready\(\)/, 'the offer waits for the check, so it never flashes up');
+});
+
 test('the manifest makes the board installable, full screen', () => {
   const m = manifest({}, null);
   assert.equal(m.name, 'Family Board'); assert.ok(m.short_name.length <= 12);
@@ -55,6 +71,7 @@ test('the manifest makes the board installable, full screen', () => {
   assert.equal(manifest({ SITE_NAME: 'Our Town Boards' }, null).short_name, 'Board');
   const t = 'a'.repeat(64); assert.equal(manifest({}, t).start_url, '/?app=' + t);
   assert.equal(manifest({}, '"><script>').start_url, '/', 'only a real code goes in');
+  assert.deepEqual(manifest({}, null, 'https://board.test').related_applications, [{ platform: 'webapp', url: 'https://board.test/manifest.webmanifest' }], 'Chrome can tell the board it is installed');
 });
 
 test('the service worker never keeps a family’s data', () => {
@@ -98,6 +115,8 @@ test('a new iPhone app opens signed in to the same family, once', async (t) => {
   assert.match(token, /^[0-9a-f]{64}$/);
   const page = await (await call('/?app=' + token, { cookie: 'fbs=' + tok })).text();
   assert.match(page, new RegExp(`manifest\\.webmanifest\\?app=${token}`), 'the page Safari adds carries the code in its manifest');
+  const status = async (cookie) => JSON.parse(await (await call('/api/app/status', { cookie })).text()).installed;
+  assert.equal(await status('fbs=' + tok), false, 'no app yet, so Safari keeps offering it');
 
   // The new app opens with no cookies: it gets the opening page, which only the home-screen app uses.
   assert.match(await (await call('/?app=' + token)).text(), /Opening the app/);
@@ -110,6 +129,10 @@ test('a new iPhone app opens signed in to the same family, once', async (t) => {
   const s = await A.readSession(env, new Request('https://board.test/', { headers: { cookie: 'fbs=' + fresh } }));
   assert.equal(s.household_id, 2, 'same family'); assert.equal(s.kind, 'parent'); assert.match(s.label, /app/);
   assert.equal((await call('/auth/app/claim', { method: 'POST', ua: UA.iphoneApp, body: { t: token } })).status, 410, 'only once');
+  assert.equal(await status('fbs=' + tok), true, 'once the app has opened, Safari on that phone stops offering it');
+  const other = await A.createSession(env, { userId: 1, householdId: 2, kind: 'parent', label: 'another phone' });
+  assert.equal(await status('fbs=' + other), false, 'another device still gets the offer');
+  assert.equal((await call('/api/app/status')).status, 401, 'not signed in: nothing to tell');
 
   // A code that has run out does nothing.
   const { token: old } = JSON.parse(await (await call('/api/app/handoff', { method: 'POST', cookie: 'fbs=' + tok, body: {} })).text());

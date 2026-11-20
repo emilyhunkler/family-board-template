@@ -581,7 +581,7 @@ export default {
       if (code && (A.sameString(await sha('fb:' + code), g.hash) || (env.SETUP_CODE && A.sameString(code, String(env.SETUP_CODE).trim())))) { await A.clearLimit(env, 'code:' + ip); return redirect('/', `fb=${g.hash}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax; Secure`); }
       await A.fail(env, 'code:' + ip, 60 * 60); return A.legacyCodePage('That code is not right.', !!env.SETUP_CODE);
     }
-    if (path === '/manifest.webmanifest') return APP.manifestResponse(env, url.searchParams.get('app'));
+    if (path === '/manifest.webmanifest') return APP.manifestResponse(env, url.searchParams.get('app'), url.origin);
     const openPaths = ['/icon.svg', '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png', '/apple-touch-icon-precomposed.png', '/api/health', '/sw.js', '/offline'];
     const appCode = path === '/' && APP.tokenOk(url.searchParams.get('app')) ? url.searchParams.get('app') : null;
     // LOCAL_DEV is only ever set by `wrangler dev` (see .claude/launch.json): with custom-domain routes, dev requests carry the real domain as their host.
@@ -605,8 +605,9 @@ export default {
       if (path === '/api/app/handoff' && method === 'POST') {
         if (local && !session) return json({ token: null });
         const wait = await A.check(env, 'handoff:' + env.HID, 30); if (wait) return json({ token: null }); await A.fail(env, 'handoff:' + env.HID, 60 * 60);
-        try { return json({ token: await APP.makeHandoff(env, req, session) }); } catch { return json({ token: null }); } // works once migration 0011 has run
+        try { return json({ token: await APP.makeHandoff(env, req, session) }); } catch { return json({ token: null }); } // works once migrations 0011 and 0012 have run
       }
+      if (path === '/api/app/status') return json({ installed: await APP.appMade(env, session).catch(() => false) });
       if (path === '/api/version') return json({ version: env.CF_VERSION_METADATA?.id || 'dev' });
       if (path === '/api/reward/request' && method === 'POST') {
         const r = (cfg.rewards || []).find((x) => x.id === body.rewardId); if (!r) return err('no such reward', 404); const k = cfg.kids.find((x) => x.id === body.kid); if (!k) return err('kid', 404);

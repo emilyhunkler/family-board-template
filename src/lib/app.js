@@ -8,21 +8,29 @@ export const tokenOk = (t) => typeof t === 'string' && /^[0-9a-f]{64}$/.test(t);
 export const deviceOf = (req) => (/\(([^)]*)\)/.exec(req.headers.get('user-agent') || '') || [])[1] || '';
 
 // One manifest for every family (browsers fetch it without cookies). With a code, the app opens with that code the first time.
-export function manifest(env, app) {
+export function manifest(env, app, origin = '') {
   const name = String(env.SITE_NAME || 'Family Board').slice(0, 40); const start = tokenOk(app) ? '/?app=' + app : '/';
   return { id: '/', name, short_name: name.length <= 12 ? name : 'Board', description: 'Your family’s calendar, chores, stars and groceries.', start_url: start, scope: '/', display: 'standalone', display_override: ['standalone'], orientation: 'any', background_color: '#eaf7ee', theme_color: '#1f3a5f', lang: 'en',
+    // Lets Chrome tell the board, in a plain browser tab, that this device already has the app.
+    ...(origin ? { related_applications: [{ platform: 'webapp', url: origin + '/manifest.webmanifest' }] } : {}),
     icons: [{ src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' }, { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
       { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' }, { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }, { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }] };
 }
-export const manifestResponse = (env, app) => new Response(JSON.stringify(manifest(env, app)), { headers: { 'content-type': 'application/manifest+json', 'cache-control': 'no-cache' } });
+export const manifestResponse = (env, app, origin) => new Response(JSON.stringify(manifest(env, app, origin)), { headers: { 'content-type': 'application/manifest+json', 'cache-control': 'no-cache' } });
 
 // Made by a signed-in device (or one past the old family code) just before it shows the iPhone steps.
 export async function makeHandoff(env, req, session) {
   const now = new Date(); const token = A.randomHex(32);
-  await env.DB.prepare('DELETE FROM app_handoffs /* all-families: tidy up */ WHERE expires_at < ? OR used_at IS NOT NULL').bind(now.toISOString()).run();
-  await env.DB.prepare('INSERT INTO app_handoffs(id,household_id,user_id,kind,device,created_at,expires_at) VALUES(?,?,?,?,?,?,?)')
-    .bind(await A.sha256hex(token), session?.household_id || env.HID || 1, session?.user_id || null, session ? session.kind : 'gate', deviceOf(req), now.toISOString(), new Date(now.getTime() + HANDOFF_MINUTES * 60000).toISOString()).run();
+  // Used codes stay (only a hash, no longer any use) so the browser that made one knows its app exists.
+  await env.DB.prepare('DELETE FROM app_handoffs /* all-families: tidy up */ WHERE expires_at < ? AND used_at IS NULL').bind(now.toISOString()).run();
+  await env.DB.prepare('INSERT INTO app_handoffs(id,household_id,user_id,kind,device,created_at,expires_at,from_session) VALUES(?,?,?,?,?,?,?,?)')
+    .bind(await A.sha256hex(token), session?.household_id || env.HID || 1, session?.user_id || null, session ? session.kind : 'gate', deviceOf(req), now.toISOString(), new Date(now.getTime() + HANDOFF_MINUTES * 60000).toISOString(), session?.id || null).run();
   return token;
+}
+// Has the app that this browser made a code for opened since? (iPhone and iPad: the app can't tell Safari itself.)
+export async function appMade(env, session) {
+  if (!session?.id) return false;
+  return !!(await env.DB.prepare('SELECT 1 AS y FROM app_handoffs WHERE from_session=? AND household_id=? AND used_at IS NOT NULL LIMIT 1').bind(session.id, session.household_id).first());
 }
 // Used once, from the same kind of device, before it runs out. Returns the code's row, or null.
 export async function takeHandoff(env, req, token) {

@@ -6,12 +6,15 @@ import htm from 'https://cdn.jsdelivr.net/npm/htm@3.1.1/+esm';
 // app.js imports this file, so anything taken from app.js only exists once the board has finished loading.
 // The pictures below are drawn while this file loads, so it has its own html instead of app.js's.
 import { api, chime, confetti, toast } from './app.js';
-import { deviceKind, isIOSKind, deviceWord, iosVersion } from './device.js';
+import { deviceKind, isIOSKind, deviceWord, iosVersion, offerApp } from './device.js';
 const html = htm.bind(h);
 
 const who = () => ({ ua: navigator.userAgent, platform: navigator.platform, touchPoints: navigator.maxTouchPoints || 0 });
 export const inApp = () => matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches || !!navigator.standalone;
 const mem = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+// Opened from the icon: this device has the app. On Android and computers the app shares the browser's storage,
+// so the browser remembers it too and stops offering it.
+if (inApp()) mem.set('fb-app', 'installed');
 
 // Android, Chrome and Edge offer their own one-tap install, once, early in the page's life. Keep it for our button.
 let offer = null; const subs = new Set(); const tell = () => subs.forEach((f) => f());
@@ -61,10 +64,14 @@ function stepsFor(kind, name, ver, tablet) {
 // The guide itself. Shows one big button where the browser can install in one tap, or a few picture steps.
 export function AppGuide({ name = 'Family Board', onDone }) {
   const env = who(); const kind = deviceKind(env); const word = deviceWord(env); const ofr = useOffer();
-  const [busy, setBusy] = useState(isIOSKind(kind) && !inApp()); const [won, setWon] = useState(false);
+  const ss = (k, v) => { try { return v === undefined ? sessionStorage.getItem(k) : v === null ? sessionStorage.removeItem(k) : sessionStorage.setItem(k, v); } catch { return null; } };
+  // "Show the steps anyway" (someone deleted the app, or wants it again) survives the iPhone's reload.
+  const [again, setAgain] = useState(() => ss('fb-app-again') === '1');
+  const known = !again && mem.get('fb-app') === 'installed';
+  const [busy, setBusy] = useState(isIOSKind(kind) && !inApp() && !known); const [won, setWon] = useState(false);
   useEffect(() => { if (!busy) return; readyForIOS().then((reloading) => { if (!reloading) setBusy(false); }); }, []);
   if (inApp()) return html`<div class="appg"><div class="appok">🎉 You’re using the app</div><p class="applead">You’re all set. Open ${name} from its icon any time.</p></div>`;
-  if (won || mem.get('fb-app') === 'installed') return html`<div class="appg"><div class="appok">🎉 You’ve got the app</div><p class="applead">Open ${name} from your ${word === 'computer' ? 'apps' : 'home screen'}. It opens full screen and stays signed in.</p>${onDone ? html`<button class="pill" onClick=${onDone}>OK</button>` : ''}</div>`;
+  if (!again && (won || mem.get('fb-app') === 'installed')) return html`<div class="appg"><div class="appok">🎉 You’ve got the app</div><p class="applead">Open ${name} from your ${word === 'computer' ? 'apps' : 'home screen'}. It opens full screen and stays signed in.</p>${onDone ? html`<button class="pill" onClick=${onDone}>OK</button>` : ''}<p class="appsmall"><button class="pill sm lite" onClick=${() => { ss('fb-app-again', '1'); setAgain(true); if (isIOSKind(kind)) { setBusy(true); readyForIOS().then((r) => { if (!r) setBusy(false); }); } }}>Show the steps anyway</button></p></div>`;
   if (busy) return html`<div class="appg"><p class="applead">Getting your app ready…</p></div>`;
   const install = async () => { try { offer.prompt(); const r = await offer.userChoice; if (r.outcome === 'accepted') { mem.set('fb-app', 'installed'); setWon(true); chime('win'); confetti(); } } catch {} };
   const lead = html`<p class="applead">Put ${name} on your ${word} like any other app. It opens full screen, and you stay signed in.</p>`;
@@ -83,7 +90,17 @@ export function AppSheet({ name, onClose }) {
 }
 
 // A gentle first-time offer at the bottom of the board. "Not now" puts it away; Get the app stays in grown-up settings.
-export const nudgeWanted = () => !inApp() && deviceKind(who()) !== 'none' && mem.get('fb-app-nudge') !== 'no' && mem.get('fb-app') !== 'installed';
+export const nudgeWanted = () => offerApp({ standalone: inApp(), kind: deviceKind(who()), noThanks: mem.get('fb-app-nudge') === 'no', installed: mem.get('fb-app') === 'installed' });
+// Before the offer shows, ask whether this device already has the app in ways the browser's own storage can't tell:
+// Chrome lists installed apps it knows about, and on iPhone and iPad the board knows whether the app this browser
+// set up has opened. Either answer is remembered on this device.
+export async function hasAppAlready() {
+  let yes = false;
+  try { if (navigator.getInstalledRelatedApps) yes = (await navigator.getInstalledRelatedApps()).length > 0; } catch {}
+  if (!yes && isIOSKind(deviceKind(who()))) { try { yes = !!(await api('/api/app/status')).installed; } catch {} }
+  if (yes) mem.set('fb-app', 'installed');
+  return yes;
+}
 export function AppNudge({ onOpen, onClose }) {
   const word = deviceWord(who());
   const no = () => { mem.set('fb-app-nudge', 'no'); onClose(); };
