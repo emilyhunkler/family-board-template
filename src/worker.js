@@ -681,7 +681,7 @@ export default {
         else if (what === 'note') { text = String(body.text || '').trim().slice(0, 300); if (!text) return err('Write a note first'); title = `💬 From the kitchen${body.from ? ', ' + String(body.from).slice(0, 30) : ''}`; }
         else return err('Nothing to send');
         const n = await notify(env, 'send', title, text, link, body.to && body.to !== 'all' ? String(body.to) : null);
-        if (!n) return err("No phones are set up yet. On each phone, open the board and tap Turn on notifications.", 404);
+        if (!n) return err(body.to && body.to !== 'all' ? `${String(body.to).slice(0, 30)}'s phone isn't set up yet. On that phone, open the board and tap Turn on notifications.` : "No phones are set up yet. On each phone, open the board and tap Turn on notifications.", 404);
         return json({ ok: true, sent: n });
       }
       if (path === '/api/push/subscribe' && method === 'POST') {

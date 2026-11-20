@@ -396,15 +396,27 @@ function ShareSheet({ items, onClose }) {
     </div>
     <pre class="shprev">${text}</pre></div></div>`;
 }
-function Groceries({ b, refresh }) {
+// Kitchen screen: "Send list" goes to the grown-ups' phones as a notification, so nobody has to sign in to
+// WhatsApp or email on the shared tablet. Phones keep the share sheet above.
+function PhoneListSheet({ b, items, onClose }) {
+  const [to, setTo] = useState('all'); const [busy, setBusy] = useState(false); const [msg, setMsg] = useState('');
+  const parents = b.config.family.parents || [];
+  const send = async () => { setBusy(true); setMsg(''); try { const r = await api('/api/push/send', { what: 'groceries', to, from: '' }); chime('win'); toast(`Sent to ${r.sent} phone${r.sent === 1 ? '' : 's'} 📲`); onClose(); } catch (e) { chime('bad'); setMsg(e.message); } finally { setBusy(false); } };
+  return html`<div class="ov" onClick=${onClose}><div class="sheet shsheet" onClick=${(e) => e.stopPropagation()}><button class="close" onClick=${onClose}>×</button>
+    <h3>📲 Send the list to phones</h3><p class="meta">${items.length} item${items.length === 1 ? '' : 's'}. It pops up on the grown-ups' phones.</p>
+    ${parents.length > 1 ? html`<div class="chips big">${[['all', 'Everyone'], ...parents.map((p) => [p.name, p.name])].map(([v, l]) => html`<button class=${to === v ? 'on' : ''} onClick=${() => setTo(v)}>${l}</button>`)}</div>` : ''}
+    <div class="btns"><button class="pill" disabled=${busy} onClick=${send}>${busy ? 'Sending…' : '📲 Send to phones'}</button></div>
+    ${msg ? html`<p class="pterr">${msg}</p>` : ''}</div></div>`;
+}
+function Groceries({ b, refresh, display }) {
   const [txt, setTxt] = useState(''); const [sharing, setSharing] = useState(false); const list = b.groceries; const open = list.filter((g) => !g.done).sort((a, c) => AISLES.indexOf(a.aisle) - AISLES.indexOf(c.aisle)); const done = list.filter((g) => g.done);
   const add = async () => { if (!txt.trim()) return; await api('/api/grocery', { text: txt, by: 'board' }); setTxt(''); chime('ok'); refresh(); };
   const often = ['Milk', 'Bread', 'Bananas', 'Eggs', 'Yogurt tubes', 'Apples', 'Cheese sticks', ...(b.config.family.dog && !CHARACTER.has(b.config.family.petKind) ? [`${b.config.family.dog}'s food`] : ['Cereal'])];
-  return html`<div class="page"><div class="wkhead"><h2>Groceries</h2><span style="color:var(--muted);font-weight:800">${open.length} things</span>${open.length ? html`<button class="pill sm wa" style="margin-left:auto" onClick=${() => setSharing(true)}>📤 Send list</button>` : ''}${done.length ? html`<button class="pill lite sm" style=${open.length ? '' : 'margin-left:auto'} onClick=${async () => { await api('/api/grocery/clear', {}); refresh(); }}>🧹 Clear ${done.length} checked</button>` : ''}</div>
+  return html`<div class="page"><div class="wkhead"><h2>Groceries</h2><span style="color:var(--muted);font-weight:800">${open.length} things</span>${open.length ? html`<button class="pill sm wa" style="margin-left:auto" onClick=${() => setSharing(true)}>${display ? '📲' : '📤'} Send list</button>` : ''}${done.length ? html`<button class="pill lite sm" style=${open.length ? '' : 'margin-left:auto'} onClick=${async () => { await api('/api/grocery/clear', {}); refresh(); }}>🧹 Clear ${done.length} checked</button>` : ''}</div>
     <div class="groc"><div class="card glist">${[...open, ...done].map((g) => html`<button class=${'gi' + (g.done ? ' done' : '')} onClick=${async () => { await api(`/api/grocery/${g.id}/toggle`, {}); refresh(); }}><span class="bx">${g.done ? '✓' : ''}</span>${g.text}<em>${g.aisle}</em>${g.done ? html`<span class="x" onClick=${async (e) => { e.stopPropagation(); await del(`/api/grocery/${g.id}`); refresh(); }}>×</span>` : ''}</button>`)}${!list.length ? html`<div style="padding:20px;color:var(--muted);font-weight:800">The list is empty. Add something →</div>` : ''}</div>
       <div class="card gadd"><div class="lbl">Add something</div><input class="gbox" value=${txt} onInput=${(e) => setTxt(e.target.value)} onKeyDown=${(e) => e.key === 'Enter' && add()} placeholder="Oat milk, bananas, poop bags…" /><div class="hint">A few at once with commas, or hold the mic and say them. The aisle is picked for you.</div><button class="pill" style="margin-top:10px" onClick=${add}>Add</button>
         <div class="lbl" style="margin-top:18px">Often bought</div><div class="chips">${often.map((o) => html`<button onClick=${async () => { await api('/api/grocery', { text: o, by: 'board' }); refresh(); }}>${o}</button>`)}</div></div></div>
-    ${sharing ? html`<${ShareSheet} items=${open} onClose=${() => setSharing(false)} />` : ''}</div>`;
+    ${sharing ? (display ? html`<${PhoneListSheet} b=${b} items=${open} onClose=${() => setSharing(false)} />` : html`<${ShareSheet} items=${open} onClose=${() => setSharing(false)} />`) : ''}</div>`;
 }
 
 // True on phone-width screens, where seven time columns would be too cramped.
@@ -870,7 +882,7 @@ function App() {
       ${pageList.map((p) => { const k = b.kids.find((x) => x.id === p);
         if (k) return html`<${KidPage} key=${k.id} b=${b} k=${k} refresh=${refresh} setPage=${setPage} startTimer=${startTimer} withPin=${pinApi.withPin} openPay=${() => openPay(k)} />`;
         return { today: html`<${ParentToday} key="today" b=${b} refresh=${refresh} setPage=${setPage} openEv=${setEv} withPin=${pinApi.withPin} openParents=${(sec) => setParents(sec || true)} openKids=${() => setKidsOpen(true)} />`, week: html`<${Week} key="week" b=${b} openEv=${setEv} refresh=${refresh} withPin=${pinApi.withPin} />`, home: html`<${Home} key="home" b=${b} openEv=${setEv} setPage=${setPage} refresh=${refresh} />`,
-          wardrobe: html`<${Wardrobe} key="wardrobe" b=${b} kidId=${wardKid} refresh=${refresh} setPage=${setPage} />`, groceries: html`<${Groceries} key="groceries" b=${b} refresh=${refresh} />` }[p]; })}
+          wardrobe: html`<${Wardrobe} key="wardrobe" b=${b} kidId=${wardKid} refresh=${refresh} setPage=${setPage} />`, groceries: html`<${Groceries} key="groceries" b=${b} refresh=${refresh} display=${display} />` }[p]; })}
     </div>
     <div class="dots">${pageList.map((p) => html`<button class=${p === page ? 'on' : ''} onClick=${() => setPage(p)} title=${p}></button>`)}</div>
     <div class="navbar">${pageList.filter((p) => !(parentView && p === 'wardrobe')).map((p) => { const k = b.kids.find((x) => x.id === p); const ic = { week: '📅', home: '🏠', today: '🏠', wardrobe: '👕', groceries: '🛒' }[p] || '⭐'; return html`<button class=${p === page ? 'on' : ''} onClick=${() => setPage(p)}>${k ? html`<${Avatar} kid=${k} size="24px" />` : html`<span>${ic}</span>`}${k ? k.name : p[0].toUpperCase() + p.slice(1)}</button>`; })}${parentView ? html`<button onClick=${() => setParents(true)}><span>⚙️</span>Settings</button>` : ''}</div>
