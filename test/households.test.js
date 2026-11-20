@@ -9,7 +9,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import * as A from '../src/lib/auth.js';
 
-const FAMILY_TABLES = ['settings', 'checks', 'quest_claims', 'todos', 'ledger', 'groceries', 'meals', 'notes', 'cache', 'events_log', 'feedback', 'reward_requests', 'photos', 'push_subs', 'users', 'sessions', 'invites', 'quiz_runs', 'ratelimit', 'signups', 'pairings'];
+const FAMILY_TABLES = ['settings', 'checks', 'quest_claims', 'todos', 'ledger', 'groceries', 'meals', 'notes', 'cache', 'events_log', 'feedback', 'reward_requests', 'photos', 'push_subs', 'users', 'sessions', 'invites', 'quiz_runs', 'day_plans', 'ratelimit', 'signups', 'pairings'];
 
 test('every query is limited to one family, or marked on purpose', () => {
   const files = ['src/worker.js', ...readdirSync(new URL('../src/lib/', import.meta.url)).map((f) => 'src/lib/' + f)];
