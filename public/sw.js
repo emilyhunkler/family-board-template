@@ -7,7 +7,7 @@
 // Nothing a family adds (calendar, chores, photos, names) is ever kept here: /api and sign-in requests go
 // straight to the network.
 const CACHE = 'fb-app-v1';
-const OFFLINE = '/offline.html';
+const OFFLINE = '/offline'; // Cloudflare serves public/offline.html at /offline
 const KEEP = [OFFLINE, '/icon-192.png', '/icon.svg'];
 // Libraries and fonts the board loads from elsewhere. Their addresses carry a version, so a saved copy is safe.
 const SHARED = ['cdn.jsdelivr.net', 'fonts.googleapis.com', 'fonts.gstatic.com'];

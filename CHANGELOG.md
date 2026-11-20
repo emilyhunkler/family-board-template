@@ -26,7 +26,7 @@ date when it goes live (see RELEASING.md).
 
 ### Behind the scenes
 - New `app_handoffs` table (migration 0011): one-time codes for a new iPhone or iPad app, kept as SHA-256 only, good for 20 minutes, used once, only from the same kind of device, and only by the app opened from the home screen (the same link opened in a browser just shows sign-in). Removed with the family's other data on delete.
-- The web app manifest is now made by the Worker (name from SITE_NAME, or "Family Board"), with separate "any" and "maskable" icons. The service worker keeps the board's own files fresh from the network, keeps versioned libraries and fonts for a quick start, shows `offline.html` when there's no internet, and never stores anything from `/api` or sign-in.
+- The web app manifest is now made by the Worker (name from SITE_NAME, or "Family Board"), with separate "any" and "maskable" icons. The service worker keeps the board's own files fresh from the network, keeps versioned libraries and fonts for a quick start, shows `offline.html` (served at `/offline`) when there's no internet, and never stores anything from `/api` or sign-in.
 - New test: every setting the grown-ups screen could change before the tidy-up is still on it, and every page in the side list has something to show.
 - New `cash_requests` table (migration 0010). Money out of the bank is a new `cashout` ledger row; money in is a `jar` row. Pay day totals are kept for 6 weeks in the `paychecks` setting, and a week can only be paid once.
 - The pretend test family's pay day is the day it's loaded, so the pay day screen shows straight away, and Lily starts with $4 saved.

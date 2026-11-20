@@ -61,7 +61,7 @@ test('the service worker never keeps a family’s data', () => {
   const sw = readFileSync(new URL('../public/sw.js', import.meta.url), 'utf8');
   assert.match(sw, /pathname\.startsWith\('\/api\/'\) \|\| url\.pathname\.startsWith\('\/auth\/'\)[^\n]*return;/);
   assert.match(sw, /req\.method !== 'GET'\) return/);
-  assert.match(sw, /OFFLINE = '\/offline\.html'/);
+  assert.match(sw, /OFFLINE = '\/offline'/);
 });
 
 function fakeD1(db) {
@@ -76,7 +76,7 @@ test('a new iPhone app opens signed in to the same family, once', async (t) => {
   const db = new DatabaseSync(':memory:');
   const dir = new URL('../migrations/', import.meta.url);
   for (const f of readdirSync(dir).filter((x) => x.endsWith('.sql')).sort()) db.exec(readFileSync(new URL(f, dir), 'utf8'));
-  const pub = (p) => readFileSync(new URL('../public' + (p === '/' ? '/index.html' : p), import.meta.url));
+  const pub = (p) => readFileSync(new URL('../public' + (p === '/' ? '/index.html' : p === '/offline' ? '/offline.html' : p), import.meta.url)); // like Cloudflare's assets
   const env = { DB: fakeD1(db), ASSETS: { fetch: async (req) => { const p = new URL(req.url).pathname; try { return new Response(pub(p), { headers: { 'content-type': p === '/' ? 'text/html' : 'text/plain' } }); } catch { return new Response('nope', { status: 404 }); } } } };
   const realFetch = globalThis.fetch; globalThis.fetch = async () => { throw new Error('no network in tests'); }; t.after(() => { globalThis.fetch = realFetch; });
   const { default: worker } = await import('../src/worker.js');
@@ -90,7 +90,7 @@ test('a new iPhone app opens signed in to the same family, once', async (t) => {
   assert.equal((await call('/manifest.webmanifest')).status, 200);
   assert.equal(JSON.parse(await (await call('/manifest.webmanifest')).text()).display, 'standalone');
   assert.equal((await call('/sw.js')).status, 200);
-  assert.match(await (await call('/offline.html')).text(), /No internet right now/);
+  assert.match(await (await call('/offline')).text(), /No internet right now/);
   assert.match(await (await call('/')).text(), /Sign in/, 'everything else still needs sign-in');
 
   // Safari, signed in, makes a code before showing the steps.

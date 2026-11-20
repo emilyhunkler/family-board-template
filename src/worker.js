@@ -582,7 +582,7 @@ export default {
       await A.fail(env, 'code:' + ip, 60 * 60); return A.legacyCodePage('That code is not right.', !!env.SETUP_CODE);
     }
     if (path === '/manifest.webmanifest') return APP.manifestResponse(env, url.searchParams.get('app'));
-    const openPaths = ['/icon.svg', '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png', '/apple-touch-icon-precomposed.png', '/api/health', '/sw.js', '/offline.html'];
+    const openPaths = ['/icon.svg', '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png', '/apple-touch-icon-precomposed.png', '/api/health', '/sw.js', '/offline'];
     const appCode = path === '/' && APP.tokenOk(url.searchParams.get('app')) ? url.searchParams.get('app') : null;
     // LOCAL_DEV is only ever set by `wrangler dev` (see .claude/launch.json): with custom-domain routes, dev requests carry the real domain as their host.
     const local = url.hostname.startsWith('localhost') || url.hostname === '127.0.0.1' || env.LOCAL_DEV === '1';
