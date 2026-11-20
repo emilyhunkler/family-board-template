@@ -90,6 +90,13 @@ html.dark .par{background:linear-gradient(160deg,#1e3a26,#22422f 55%,#1d2c38)}
 html.dark .pnav button{color:#b8c3d6}
 html.dark .pnav button.on{background:#3b6496}
 html.dark .pnav .cnt{background:var(--coral)}
+html.dark .ptabs button{color:#b8c3d6}
+html.dark .ptabs button.on{background:#3b6496}
+html.dark .ptabs .cnt{background:var(--coral)}
+html.dark .help{color:#b8c3d6}
+html.dark .help summary{color:#b8c3d6}
+html.dark .help summary .i{background:#3b6496}
+html.dark .pnote{color:#b8c3d6}
 html.dark .trow input.nm{background:#1b222d}
 html.dark .trow input.emi{background:#1b222d}
 html.dark .who{background:#1b222d}

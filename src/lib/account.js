@@ -29,7 +29,7 @@ export function privacyPage({ site, contact, updated }) {
   <h2>Services the board uses</h2><p><b>Cloudflare</b> runs the site and stores the data, and makes the natural-sounding voice from the words the board says out loud. <b>Google</b> is used only if you choose Continue with Google, and shares your name and email. <b>Open-Meteo</b> gets your town's location for the weather. Your <b>calendar</b> service is asked for your events every 15 minutes, using the link you added. If a grown-up turns on smarter voice help in settings, unusual spoken sentences go to <b>Anthropic</b> to be understood.</p>
   <h2>Feedback</h2><p>Ideas and feedback sent from the board are posted publicly on GitHub so they can be tracked and fixed. Names from your board are removed first, but please don't include anything private.</p>
   <h2>Kids</h2><p>Kids don't have accounts. A grown-up adds them to the family's board, and only signed-in family devices can see it.</p>
-  <h2>Your choices</h2><p>A signed-in grown-up can download everything or delete the family's board at any time on the <a href="/account">Your board</a> page (Grown-ups, then Sign-in and devices). Deleting removes it right away; backup copies disappear within 30 days.</p>
+  <h2>Your choices</h2><p>A signed-in grown-up can download everything or delete the family's board at any time on the <a href="/account">Your board</a> page (Grown-ups, then Advanced, then Sign-in and devices). Deleting removes it right away; backup copies disappear within 30 days.</p>
   <h2>Questions</h2><p>To ask anything or to have your data removed, ${reach}.</p><p class="more"><a href="/">Back to ${escHtml(site)}</a></p>`);
 }
 
