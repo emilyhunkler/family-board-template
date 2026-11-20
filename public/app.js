@@ -5,6 +5,7 @@ import { Parents } from './parents.js';
 import { useVoice, speak, dictate, primeSpeech } from './voice.js';
 import { TRIVIA, JOKES, FACTS, WOULD_YOU_RATHER, GEAR } from './fun.js';
 import { BrainCard } from './brain.js';
+import { AppSheet, AppNudge, nudgeWanted, reopenGuide, inApp } from './install.js';
 export const html = htm.bind(h);
 
 // ---------- helpers ----------
@@ -569,6 +570,8 @@ function usePushState() {
 }
 const startHidden = () => { try { return localStorage.getItem('fb-start-hidden') === '1'; } catch { return false; } };
 const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || !!navigator.standalone;
+// Opens the "Get the app" steps from anywhere on the board (the App below listens for it).
+export const openApp = () => dispatchEvent(new Event('fb-get-app'));
 const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 // The first-week checklist for grown-ups. One "next up" step at a time, suited to the device they're holding; each step ticks itself off once it's done.
 const onComputer = () => !isIOS() && !/Android/i.test(navigator.userAgent) && matchMedia('(pointer:fine)').matches && innerWidth >= 900;
@@ -593,8 +596,8 @@ function GettingStarted({ b, openParents, planDinner, onHide, openKids }) {
     { done: !st.kidsTurn, e: '🎨', t: `Kids make their avatars`, how: `${andList(kidsLeft) || 'The kids'} still need${kidsLeft.length === 1 ? 's' : ''} a turn. It takes each kid about a minute.`, act: html`<button class="pill sm" onClick=${openKids}>Start the kids’ turn</button>` },
     { done: st.calendar, e: '📅', t: 'Connect your calendar', how: 'Then everyone’s plans show up on the board, each in their own color.', act: html`<button class="pill sm" onClick=${() => openParents('calendar')}>Connect it</button>` },
     ...(pc ? [{ done: st.pushes > 0, e: '📱', t: 'Get the board on your phone', how: 'Point your phone’s camera here, sign in, and it’ll walk you through the rest.', act: html`<${PhoneQR} />` }] : [
-      { done: home, e: '📲', t: 'Put the board on your home screen', how: ios ? 'In Safari, tap Share, then “Add to Home Screen”. Then open it from the new icon.' : 'In your browser menu, tap “Add to Home screen” or “Install app”.' },
-      { done: push === 'on', e: '🔔', t: 'Get notes from the kitchen', how: ios && !home ? 'Do the home screen step first, then open the board from its icon.' : 'The grocery list, notes from the kids, stars to approve and pay day.', act: ios && !home ? null : html`<button class="pill sm" onClick=${async () => { setMsg(''); try { await enablePush(b.me?.name || ''); setPush('on'); chime('win'); } catch (e) { setMsg(e.message); } }}>Turn on</button>` }]),
+      { done: home, e: '📲', t: 'Get the app on your phone', how: 'It opens full screen like any other app, and stays signed in.', act: html`<button class="pill sm" onClick=${openApp}>Get the app</button>` },
+      { done: push === 'on', e: '🔔', t: 'Get notes from the kitchen', how: ios && !home ? 'Get the app first, then open it from its icon.' : 'The grocery list, notes from the kids, stars to approve and pay day.', act: ios && !home ? null : html`<button class="pill sm" onClick=${async () => { setMsg(''); try { await enablePush(b.me?.name || ''); setPush('on'); chime('win'); } catch (e) { setMsg(e.message); } }}>Turn on</button>` }]),
     ...(st.grownups > 1 ? [{ done: st.accounts >= st.grownups, e: '💌', t: `Invite ${andList(others)}`, how: 'So everyone can approve stars, plan dinners and get the grocery list.', act: html`<button class="pill sm" onClick=${() => openParents('account')}>Invite</button>` }] : []),
     { done: st.checked, e: '✅', t: 'Kids tick off their first chore', how: 'On the kitchen screen, they tap their name, then a chore. Cue the confetti.' },
     { done: st.meal, e: '🍝', t: 'Plan tonight’s dinner', how: 'It shows on the kitchen screen, so nobody has to ask.', act: html`<button class="pill sm" onClick=${planDinner}>Plan it</button>` },
@@ -615,8 +618,8 @@ function PushCard({ b }) {
   if (st === 'on' || st === 'checking') return null;
   const who = b.me?.name || b.config.family.parents[0]?.name || '';
   return html`<div class="card ptcard ptpush"><div class="pth">🔔 Get things from the kitchen</div>
-    ${ios && !standalone ? html`<p>To get notifications on an iPhone, add the board to your home screen first. In Safari, tap Share, then Add to Home Screen, and open it from there.</p>`
-      : st === 'unsupported' ? html`<p>This browser can't get notifications. On an iPhone, use Safari and add the board to your home screen.</p>`
+    ${ios && !standalone ? html`<p>On an iPhone, notifications come through the app. Get the app, then open it from its icon.</p><button class="pill" onClick=${openApp}>Get the app</button>`
+      : st === 'unsupported' ? html`<p>This browser can't get notifications. Get the app instead, then open it from its icon.</p><button class="pill" onClick=${openApp}>Get the app</button>`
       : html`<p>The kitchen screen can send you the grocery list or a note, and you'll hear when a quest needs approving.</p><button class="pill" onClick=${async () => { setMsg(''); try { await enablePush(who); setSt('on'); chime('win'); toast('Notifications on'); } catch (e) { setMsg(e.message); } }}>Turn on notifications</button>${msg ? html`<p class="pterr">${msg}</p>` : ''}`}</div>`;
 }
 // The grown-ups' home screen on their phones: what needs them, how the kids are doing, groceries, and today.
@@ -722,6 +725,9 @@ function App() {
   useTheme(b, clock);
   pinApi.setParent(b?.me?.kind === 'parent');
   const bootVersion = useRef(null); const [update, setUpdate] = useState(false);
+  // "Get the app": a gentle offer the first time, and the steps whenever someone asks for them.
+  const [appOpen, setAppOpen] = useState(reopenGuide); const [nudge, setNudge] = useState(nudgeWanted);
+  useEffect(() => { const o = () => { setNudge(false); setAppOpen(true); }; addEventListener('fb-get-app', o); return () => removeEventListener('fb-get-app', o); }, []);
   const refresh = refreshBoard = useCallback(async () => { try { const j = await api('/api/board'); setMascot(j.config.family); if (!bootVersion.current) bootVersion.current = j.version; else if (j.version && j.version !== bootVersion.current) setUpdate(true); setB(j); setErr(''); } catch (e) { setErr(e.message); } }, []);
   useEffect(() => { const back = () => { if (document.visibilityState === 'visible') refresh(); }; document.addEventListener('visibilitychange', back); return () => document.removeEventListener('visibilitychange', back); }, [refresh]);
   useEffect(() => { refresh(); const i = setInterval(refresh, 60000); const c = setInterval(() => setClock(new Date()), 1000); return () => { clearInterval(i); clearInterval(c); }; }, []);
@@ -771,6 +777,8 @@ function App() {
       <div class="right"><${WxPill} b=${b} onClick=${() => setWx(true)} />${display ? html`<button class="iconbtn" title="Send to phones" onClick=${() => setSend(true)}>📲<i>Send</i></button>` : ''}<button class="iconbtn" title="Ideas and feedback" onClick=${() => setFb(true)}>💬<i>Ideas</i></button>${display ? html`<button class="iconbtn" title="Screensaver" onClick=${(e) => { e.stopPropagation(); setTimeout(() => { idleRef.current = Date.now(); setAmbient(true); }, 50); }}>🌙<i>Sleep</i></button>` : ''}<button class="iconbtn" title="Grown-ups" onClick=${() => setParents(true)}>⚙️<i>Grown-ups</i></button></div></div>
     ${update ? html`<div class="updatebar"><span>✨ A new version of the board is ready.</span><button class="pill sm" onClick=${() => location.reload()}>Refresh now</button><button class="pill sm lite" onClick=${() => setUpdate(false)}>Later</button></div>` : ''}
     ${b.stage ? html`<div class="banner stage">🧪 Test copy (${b.stage}). Nothing here touches real families.</div>` : ''}
+    ${nudge && !appOpen && !parents && !(parentView && b.start && !startHidden()) ? html`<${AppNudge} onOpen=${() => { setNudge(false); setAppOpen(true); }} onClose=${() => setNudge(false)} />` : ''}
+    ${appOpen ? html`<${AppSheet} name=${b.appName} onClose=${() => setAppOpen(false)} />` : ''}
     <div class="pages" ref=${pagesRef} onScroll=${onScroll}>
       ${pageList.map((p) => { const k = b.kids.find((x) => x.id === p);
         if (k) return html`<${KidPage} key=${k.id} b=${b} k=${k} refresh=${refresh} setPage=${setPage} startTimer=${startTimer} withPin=${pinApi.withPin} openPay=${() => openPay(k)} />`;
@@ -793,4 +801,6 @@ function App() {
   `;
 }
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+// The app opened from its icon with its one-time sign-in code: the code has done its job, so tidy the address.
+if (inApp() && new URLSearchParams(location.search).has('app')) history.replaceState(null, '', '/' + location.hash);
 render(html`<${App} />`, document.getElementById('app'));

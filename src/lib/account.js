@@ -3,7 +3,7 @@
 import { page, escHtml } from './auth.js';
 
 // Every table that holds one family's rows, in the order they are deleted (sign-in last).
-export const FAMILY_TABLES = ['checks', 'quest_claims', 'todos', 'ledger', 'groceries', 'meals', 'notes', 'cache', 'events_log', 'feedback', 'reward_requests', 'photos', 'push_subs', 'quiz_runs', 'day_plans', 'cash_requests', 'pairings', 'invites', 'settings', 'sessions', 'users'];
+export const FAMILY_TABLES = ['checks', 'quest_claims', 'todos', 'ledger', 'groceries', 'meals', 'notes', 'cache', 'events_log', 'feedback', 'reward_requests', 'photos', 'push_subs', 'quiz_runs', 'day_plans', 'cash_requests', 'app_handoffs', 'pairings', 'invites', 'settings', 'sessions', 'users'];
 // Settings that are keys or codes, never part of a download.
 export const SECRET_SETTINGS = new Set(['vapid', 'recovery', 'gate', 'setup_ticket', 'origin']);
 

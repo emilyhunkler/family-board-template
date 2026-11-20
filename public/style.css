@@ -560,3 +560,20 @@ button.gsrow{width:100%;background:none;text-align:left;border-radius:12px}butto
 .asksheet{width:min(460px,100%);text-align:center}.asksheet h3{justify-content:center}
 .askrow{display:flex;align-items:center;justify-content:center;gap:14px;margin:14px 0 10px}.askamt{font-family:var(--head);font-size:48px;font-weight:800;color:var(--navy);min-width:150px;font-variant-numeric:tabular-nums}
 .asksheet .chips{justify-content:center}.asksheet .btns{justify-content:center;margin-top:12px}
+/* Get the app: big picture steps with very few words, and a gentle first-time offer at the bottom. */
+.appsheet{width:min(480px,100%)}
+.appg{display:flex;flex-direction:column;gap:12px;margin-top:6px}
+.applead{font-size:17px;font-weight:700;color:var(--ink2);margin:0;line-height:1.4}
+.appok{font-family:var(--head);font-size:24px;font-weight:800;color:var(--leaf)}
+.appsteps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.appstep{display:flex;align-items:center;gap:14px;background:var(--soft);border-radius:18px;padding:12px 14px}
+.appnum{flex:none;width:30px;height:30px;border-radius:50%;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--head);font-weight:800;font-size:16px}
+.appglyph{flex:none;width:58px;height:58px;border-radius:16px;background:#fff;color:#0a7aff;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 0 rgba(31,42,68,.08)}
+.appword{font-family:-apple-system,system-ui,sans-serif;font-size:17px;color:var(--ink)}
+.apptxt{display:flex;flex-direction:column;gap:2px}.apptxt b{font-size:18px;color:var(--ink);line-height:1.25}.apptxt small{font-size:14px;font-weight:700;color:var(--muted)}
+.appbig{justify-content:center;font-size:20px;padding:16px 22px}.appbig svg{width:30px;height:30px}
+.appsmall{margin:0;font-size:14px;font-weight:700;color:var(--muted);text-align:center}
+.appnudge{display:flex;align-items:center;gap:12px;margin:2px 24px 6px;background:#fff;border-radius:18px;padding:10px 12px;box-shadow:0 6px 18px rgba(31,58,95,.18);animation:pop .25s}
+.appnudge img{width:42px;height:42px;border-radius:11px;flex:none}.appnudge div{flex:1;display:flex;flex-direction:column;min-width:0}.appnudge b{font-size:16px;color:var(--navy)}.appnudge small{font-size:13px;font-weight:700;color:var(--muted)}
+.par .top .appbtn{background:var(--sun);color:#4a3300}
+@media (max-width:600px){.appnudge{margin:2px 12px 6px;flex-wrap:wrap}.appnudge div{flex-basis:calc(100% - 60px)}.appnudge .pill{flex:1;justify-content:center}.par .top .appbtn{padding:7px 11px;font-size:13px}}
