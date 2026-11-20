@@ -577,3 +577,33 @@ button.gsrow{width:100%;background:none;text-align:left;border-radius:12px}butto
 .appnudge img{width:42px;height:42px;border-radius:11px;flex:none}.appnudge div{flex:1;display:flex;flex-direction:column;min-width:0}.appnudge b{font-size:16px;color:var(--navy)}.appnudge small{font-size:13px;font-weight:700;color:var(--muted)}
 .par .top .appbtn{background:var(--sun);color:#4a3300}
 @media (max-width:600px){.appnudge{margin:2px 12px 6px;flex-wrap:wrap}.appnudge div{flex-basis:calc(100% - 60px)}.appnudge .pill{flex:1;justify-content:center}.par .top .appbtn{padding:7px 11px;font-size:13px}}
+/* The mascot as the family's guide: big on the home screen, with today's plan (jobs first, then the family idea) */
+.guide{display:flex;gap:18px;align-items:flex-start;padding:16px 20px;margin-bottom:14px;background:linear-gradient(135deg,#fffdf3,#fff7dc);border:3px solid #ffe59a}
+.gmas{display:flex;flex-direction:column;align-items:center;gap:4px;flex:none}.gmas .mascot{width:120px;height:120px;animation:bob 4s ease-in-out infinite}.gmas b{font-family:var(--head);font-weight:800;font-size:16px;color:var(--navy)}
+@keyframes bob{0%,100%{transform:rotate(-6deg) translateY(0)}50%{transform:rotate(-3deg) translateY(-4px)}}
+.guide .gmas .mascot-emoji{font-size:64px}
+.gbody{flex:1;min-width:0;display:flex;flex-direction:column;gap:10px}
+.guide button.bubble{margin:0;font-size:18px;max-width:none;padding:12px 18px;box-shadow:0 2px 0 rgba(31,42,68,.1)}
+.gplan{display:flex;flex-direction:column;gap:6px}
+.gph{font-size:12px;font-weight:900;color:#8a6d00;text-transform:uppercase;letter-spacing:.06em}
+.gstep{display:flex;align-items:center;gap:10px;background:#fff;border-radius:14px;padding:8px 12px;flex-wrap:wrap}
+.gstep .gn{width:28px;height:28px;border-radius:50%;background:var(--sun);color:var(--navy);font-weight:900;display:flex;align-items:center;justify-content:center;flex:none}
+.gstep.ok .gn{background:var(--leaf);color:#fff}.gstep.ok .gt b{color:var(--leaf)}
+.gstep .gt{flex:1;min-width:180px;display:flex;flex-direction:column}.gstep .gt b{font-size:15px;color:var(--navy)}.gstep .gt small{font-size:15px;font-weight:800;color:var(--ink2)}
+.gstep .gie{font-size:20px}
+.gbtns{display:flex;gap:6px;flex-wrap:wrap}
+@media (max-width:700px){.guide{flex-direction:column;align-items:center;padding:14px}.gmas .mascot{width:88px;height:88px}.guide button.bubble{font-size:16px}.gbody{width:100%}}
+/* "Go play!": the board rests for a while, with each kid's jobs and pay day one tap away */
+.goplay{position:fixed;inset:0;z-index:25;display:flex;align-items:center;justify-content:center;padding:20px;background:linear-gradient(160deg,#eaf7ee,#fff6d6 60%,#e6f4ff)}
+.gpcard{background:var(--card);border-radius:32px;padding:28px 32px;max-width:640px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(31,58,95,.2);display:flex;flex-direction:column;align-items:center;gap:10px}
+.gpcard .gpm{width:150px;height:150px;animation:bob 3s ease-in-out infinite}.gpcard .gpm .mascot-emoji{font-size:84px}
+.gpcard h2{font-family:var(--head);font-size:34px;margin:4px 0 0;color:var(--navy);line-height:1.1}
+.gpsay{font-size:21px;font-weight:800;color:var(--ink2);margin:0;line-height:1.35}
+.gpup h2{font-size:44px}.gphint{font-size:18px;font-weight:700;color:var(--muted);margin:0}.gpnext{font-size:20px;padding:14px 26px;margin-top:6px}
+.gpback{font-size:14px;font-weight:800;color:var(--muted);margin:4px 0 0}
+.gpkids{display:flex;flex-direction:column;gap:6px;margin-top:6px;width:100%}.gpkids>small{font-size:12px;font-weight:900;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.gpkids>div{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+.gpkids button{display:flex;align-items:center;gap:8px;background:var(--soft);border:3px solid var(--kc,#cfe5d6);border-radius:999px;padding:5px 14px 5px 5px;font-weight:900;font-size:16px;color:var(--ink);text-align:left}
+.gpkids button small{display:block;font-size:12px;color:var(--muted)}
+.gpfoot{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;justify-content:center}
+@media (max-width:600px){.gpcard{padding:20px 18px}.gpcard h2{font-size:26px}.gpsay{font-size:17px}.gpcard .gpm{width:110px;height:110px}}

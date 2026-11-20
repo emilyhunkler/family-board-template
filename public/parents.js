@@ -5,6 +5,7 @@ import { api, put, del, toast, chime, Avatar, addDays, fromYmd } from './app.js'
 import { rankVoices, bestVoice, cloudSpeak, primeSpeech } from './voice.js';
 import { PETS, CHARACTERS } from './sidekicks.js';
 import { AppGuide, inApp } from './install.js';
+import { IDEAS, KIND_NAMES } from './ideas.js';
 const html = htm.bind(h);
 const dayName = (ymd) => { const d = fromYmd(ymd); return d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }); };
 const DL = ['M', 'T', 'W', 'T', 'F', 'S', 'S']; const DI = [1, 2, 3, 4, 5, 6, 0];
@@ -15,7 +16,7 @@ const money = (n) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
 const GROUPS = [['today', '✅', 'Today', 'Today', [['approve', 'To approve'], ['todos', 'To-dos and notes'], ['meals', 'Dinners']]],
   ['chores', '⭐', 'Chores and stars', 'Chores', [['tasks', 'Daily chores'], ['quests', 'Quests'], ['prize', 'Weekly prize'], ['rewards', 'Rewards'], ['wardrobe', 'Wardrobe']]],
   ['money', '💵', 'Money and pay day', 'Money', [['money', 'Allowance and pay day']]],
-  ['family', '🏡', 'Family and calendar', 'Family', [['family', 'Family and kids'], ['calendar', 'Calendar and weather'], ['school', 'School days'], ['places', 'Drive times']]],
+  ['family', '🏡', 'Family and calendar', 'Family', [['family', 'Family and kids'], ['familytime', 'Family time'], ['calendar', 'Calendar and weather'], ['school', 'School days'], ['places', 'Drive times']]],
   ['screen', '🖥️', 'Screen and sound', 'Screen', [['app', 'Get the app'], ['screen', 'Kitchen screen'], ['photos', 'Photos'], ['voice', 'Voice'], ['notify', 'Notifications']]],
   ['advanced', '🔐', 'Advanced', 'Advanced', [['account', 'Sign-in and devices'], ['security', 'PIN and setup'], ['feedback', 'Ideas and feedback']]]];
 export const SECTIONS = GROUPS.flatMap(([, , , , list]) => list);
@@ -27,7 +28,7 @@ export const sectionId = (sec) => { const id = OLD_IDS[sec] || sec; return SECTI
 const cashWaiting = (b) => b.kids.flatMap((k) => (k.bank?.requests || []).filter((r) => r.status === 'pending'));
 const LEDGER_KIND = { payout: 'Pay day', jar: 'Into the bank', cashout: 'Cash from the bank', wardrobe: 'Wardrobe', grant: 'Stars given', reward: 'Reward' };
 
-const SECTION_COMPONENTS = { app: (p) => GetApp(p), approve: (p) => Approve(p), account: (p) => Account(p), feedback: (p) => Feedback(p), rewards: (p) => Rewards(p), photos: (p) => Photos(p), notify: (p) => Notify(p), tasks: (p) => Tasks(p), todos: (p) => Todos(p), quests: (p) => Quests(p), prize: (p) => Prize(p), money: (p) => Money(p), meals: (p) => Meals(p), school: (p) => School(p), calendar: (p) => Calendar(p), places: (p) => Places(p), wardrobe: (p) => WardrobeAdmin(p), voice: (p) => Voice(p), family: (p) => Family(p), screen: (p) => Screen(p), security: (p) => Security(p) };
+const SECTION_COMPONENTS = { app: (p) => GetApp(p), approve: (p) => Approve(p), account: (p) => Account(p), feedback: (p) => Feedback(p), rewards: (p) => Rewards(p), photos: (p) => Photos(p), notify: (p) => Notify(p), tasks: (p) => Tasks(p), todos: (p) => Todos(p), quests: (p) => Quests(p), prize: (p) => Prize(p), money: (p) => Money(p), meals: (p) => Meals(p), school: (p) => School(p), calendar: (p) => Calendar(p), places: (p) => Places(p), wardrobe: (p) => WardrobeAdmin(p), voice: (p) => Voice(p), family: (p) => Family(p), familytime: (p) => FamilyTime(p), screen: (p) => Screen(p), security: (p) => Security(p) };
 export function Parents({ b, refresh, pinApi, onClose, start }) {
   const [cfg, setCfg] = useState(null); const [sec, setSec] = useState(sectionId(start || (b.claims.some((c) => c.status === 'pending') || (b.rewardRequests || []).some((r) => r.status === 'pending') || cashWaiting(b).length ? 'approve' : 'tasks'))); const saveT = useRef(); const [saving, setSaving] = useState('');
   // Each group remembers the page you were last on, so going back to it lands there again.
@@ -311,6 +312,30 @@ function Family({ cfg, update }) {
     <div class="sub">Grown-ups</div>${cfg.family.parents.map((p, i) => html`<div class="trow"><input type="color" title="Color" value=${p.color} onInput=${(e) => update((c) => c.family.parents[i].color = e.target.value)} style="width:34px;height:34px;border:0;background:none" /><input class="nm" style="flex:0 1 160px" value=${p.name} onInput=${(e) => update((c) => c.family.parents[i].name = e.target.value)} /></div>`)}
     <div class="sub">Calendar color words</div><p class="pnote">An event shows in someone's color when its title has their name or one of their words. For example, add "violin" for ${cfg.kids[0]?.name || 'a kid'}, and "Violin lesson" shows in ${cfg.kids[0]?.name || 'their'}'s color. Events with "the kids" go to all the kids. Anything else shows as Family.</p>
     ${[...cfg.kids.map((k, i) => [k.name, k.match, (v) => update((c) => c.kids[i].match = v), 'words like violin, swim']), ...cfg.family.parents.map((p, i) => [p.name, p.match, (v) => update((c) => c.family.parents[i].match = v), 'words like yoga, book club'])].map(([name, match, set, ph]) => html`<${F} label=${name}><input type="text" placeholder=${ph} value=${(match || []).join(', ')} onInput=${(e) => set(e.target.value.split(',').map((x) => x.trim()).filter(Boolean))} /></${F}>`)}`;
+}
+// Less screen, more family: the mascot's family idea of the day, and the "Go play!" break on the kitchen screen.
+function FamilyTime({ cfg, update }) {
+  const id = cfg.ideas || {}; const nd = cfg.nudge || {}; const own = id.own || []; const [emoji, setEmoji] = useState(''); const [text, setText] = useState(''); const [out, setOut] = useState(false);
+  const setIdeas = (fn) => update((c) => { c.ideas = { on: true, stars: 0, builtIn: true, own: [], ...(c.ideas || {}) }; fn(c.ideas); });
+  const setNudge = (fn) => update((c) => { c.nudge = { on: true, minutes: 5, quiet: 15, ...(c.nudge || {}) }; fn(c.nudge); });
+  const add = () => { if (!text.trim()) return; setIdeas((x) => { x.own = [...(x.own || []), { id: uid(), emoji: emoji.trim() || '💛', text: text.trim(), out }]; }); setText(''); setEmoji(''); setOut(false); };
+  const counts = Object.entries(IDEAS.reduce((m, x) => ({ ...m, [x[3]]: (m[x[3]] || 0) + 1 }), {})).map(([k, n]) => `${KIND_NAMES[k]} (${n})`).join(', ');
+  return html`<h3>Family time</h3><p class="pnote">${cfg.family.dog ? `${cfg.family.dog}, the board's sidekick,` : 'The board'} helps everyone put screens down: one family idea a day, and a "Go play!" break when someone's been tapping a while with nothing getting done.</p>
+    <div class="sub">Family idea of the day</div>
+    <${F} label="Show it"><${Tog} on=${id.on !== false} set=${(v) => setIdeas((x) => x.on = v)} /><span style="font-size:12px;color:var(--muted)">on the home screen, with "We did it!" and "Another idea"</span></${F}>
+    ${id.on !== false ? html`<${F} label="Stars for “We did it!”"><${Step} v=${id.stars || 0} set=${(v) => setIdeas((x) => x.stars = v)} max=${5} /><span style="font-size:12px;color:var(--muted)">${id.stars ? `each kid, ${cfg.rules?.questsNeedApproval ? 'once you say yes (like a bonus quest)' : 'right away'}` : 'none, just a cheer'}</span></${F}>
+    <${F} label="Built-in ideas"><${Tog} on=${id.builtIn !== false} set=${(v) => setIdeas((x) => x.builtIn = v)} /><span style="font-size:12px;color:var(--muted)">${IDEAS.length} ideas that fit the season, the weather and the day</span></${F}>
+    <${Help} label="Which ideas come up">${counts}. Outside ideas skip rainy, snowy, very hot and very cold days; bigger ones, like a hike or a library trip, wait for the weekend; seasonal ones only come in their season. Your own ideas come up twice as often. Anything the family did in the last 10 days sits out. Every screen shows the same idea, and "Another idea" moves everyone on.</${Help}>
+    <div class="sub">Our own ideas</div>
+    ${own.map((x, i) => html`<div class="trow"><input class="em" style="width:44px;text-align:center;border:0;border-radius:8px;padding:6px" value=${x.emoji} onInput=${(e) => setIdeas((y) => y.own[i].emoji = e.target.value)} /><input class="nm" value=${x.text} onInput=${(e) => setIdeas((y) => y.own[i].text = e.target.value)} /><label style="font-size:12px;font-weight:800;display:flex;gap:4px;align-items:center"><input type="checkbox" checked=${!!x.out} onChange=${(e) => setIdeas((y) => y.own[i].out = e.target.checked)} />outside</label><button class="pill sm ghost" onClick=${() => setIdeas((y) => y.own.splice(i, 1))}>×</button></div>`)}
+    <div class="trow"><input style="width:44px;text-align:center;border:0;border-radius:8px;padding:6px" placeholder="🌳" value=${emoji} onInput=${(e) => setEmoji(e.target.value)} /><input class="nm" placeholder="Walk to the creek and skip stones" value=${text} onInput=${(e) => setText(e.target.value)} onKeyDown=${(e) => e.key === 'Enter' && add()} /><label style="font-size:12px;font-weight:800;display:flex;gap:4px;align-items:center"><input type="checkbox" checked=${out} onChange=${(e) => setOut(e.target.checked)} />outside</label><button class="pill sm" onClick=${add}>Add</button></div>
+    <p class="pnote">Tick "outside" so it skips rainy and freezing days.</p>` : ''}
+    <div class="sub">“Go play!” break</div>
+    <${F} label="Turn it on"><${Tog} on=${nd.on !== false} set=${(v) => setNudge((x) => x.on = v)} /><span style="font-size:12px;color:var(--muted)">kitchen screen only, never on grown-ups' phones</span></${F}>
+    ${nd.on !== false ? html`<${F} label="After this many minutes of tapping with nothing done"><${Step} v=${nd.minutes || 5} set=${(v) => setNudge((x) => x.minutes = v)} min=${1} max=${30} star=${false} /></${F}>
+    <${F} label="Then the board rests for (minutes)"><${Step} v=${nd.quiet || 15} set=${(v) => setNudge((x) => x.quiet = v)} min=${1} max=${60} star=${false} /></${F}>
+    <${Help} label="What counts as tapping with nothing done">Playing with avatars and the wardrobe, swiping between pages, or tapping around without ticking anything off. Ticking a chore, claiming a quest, adding groceries or planning dinner starts the count over, and so does a minute and a half with no taps. During the break, each kid's own page still opens from the break screen, so chores, pay day and brain quests always work, and the ⚙️ Grown-ups button opens settings as usual. A grown-up can end the break early with the PIN.</${Help}>
+    <${F} label="Try it"><button class="pill sm lite" onClick=${() => window.dispatchEvent(new Event('fb-preview-goplay'))}>🌳 Show the “Go play!” screen</button><span style="font-size:12px;color:var(--muted)">a 2 minute preview</span></${F}>` : ''}`;
 }
 // How the kitchen screen looks and behaves through the day.
 function Screen({ cfg, update, b }) {
