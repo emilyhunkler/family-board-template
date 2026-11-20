@@ -5,12 +5,18 @@ them. Every change goes: pull request → test copy → live, with a backup firs
 
 ## One-time setup
 
-1. **Make the test copy's database.** In Cloudflare: Storage & Databases → D1 → Create, named
-   `family_board_staging`. Copy its Database ID into `wrangler.toml` under `[env.staging]`.
-2. **Give the test copy a setup code:** `npx wrangler secret put SETUP_CODE --env staging`.
-3. **Deploy it:** `npm run deploy:staging`, then open `family-board-staging.<your-account>.workers.dev`,
-   type the setup code and make a pretend family with two kids and a few chores.
-4. **Check how live deploys happen.** In Cloudflare: Workers & Pages → family-board → Settings → Build.
+1. **Make the test copy's database.** Done: `family_board_staging` is in the same Cloudflare account as
+   the live board, and its ID is in `wrangler.toml` under `[env.staging]`.
+2. **Sign in to Cloudflare from the computer you deploy from:** `npx wrangler login` (the account that has
+   the live board).
+3. **Deploy it:** `npm run deploy:staging`. This sets up the test database's tables and puts the test board
+   at `family-board-staging.<your-account>.workers.dev`.
+4. **Give the test copy a setup code:** `npx wrangler secret put SETUP_CODE --env staging`, then open the
+   test board, type the code and make a pretend family with two kids and a few chores.
+5. **Check how live deploys happen.** The live board is the Worker named `familyboard-kitchen`, and this
+   repo's `wrangler.toml` still says `family-board`. Until they match, keep deploying the live board the way
+   you do now, and don't run `npm run deploy` from this repo, which would make a second Worker.
+   In Cloudflare: Workers & Pages → familyboard-kitchen → Settings → Build.
    - If a GitHub repo is connected, every merge to `main` goes live on its own. Set the deploy command to
      `npx wrangler d1 migrations apply DB --remote && npx wrangler deploy` so database changes go out too.
    - Turn off builds for other branches. Their preview links use the **live** database.
