@@ -1,8 +1,13 @@
 // "Get the app": puts the board on a phone, tablet or computer like any other app, with only the steps for the
 // device in someone's hand. Families think of the board as an app, so these screens call it "the app".
+import { h } from 'https://cdn.jsdelivr.net/npm/preact@11.2.0/+esm';
 import { useState, useEffect } from 'https://cdn.jsdelivr.net/npm/preact@11.2.0/hooks/+esm';
-import { html, api, chime, confetti, toast } from './app.js';
+import htm from 'https://cdn.jsdelivr.net/npm/htm@3.1.1/+esm';
+// app.js imports this file, so anything taken from app.js only exists once the board has finished loading.
+// The pictures below are drawn while this file loads, so it has its own html instead of app.js's.
+import { api, chime, confetti, toast } from './app.js';
 import { deviceKind, isIOSKind, deviceWord, iosVersion } from './device.js';
+const html = htm.bind(h);
 
 const who = () => ({ ua: navigator.userAgent, platform: navigator.platform, touchPoints: navigator.maxTouchPoints || 0 });
 export const inApp = () => matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches || !!navigator.standalone;
