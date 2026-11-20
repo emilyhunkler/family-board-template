@@ -2,6 +2,8 @@ name = "family-board"
 main = "src/worker.js"
 compatibility_date = "2026-10-01"
 compatibility_flags = ["nodejs_compat"]
+# Keep any settings added in the Cloudflare dashboard when deploying.
+keep_vars = true
 
 workers_dev = true
 
@@ -23,6 +25,28 @@ crons = ["*/15 * * * *"]
 binding = "AI"
 
 [version_metadata]
+binding = "CF_VERSION_METADATA"
+
+# The live board that families use. It's deployed only by the "Deploy live board" action on GitHub, which a
+# person starts by hand after the test copy looks right (see RELEASING.md). The top of this file stays as it
+# is for people who copy the template with the Deploy button.
+[env.live]
+name = "familyboard-kitchen"
+workers_dev = true
+
+[[env.live.d1_databases]]
+binding = "DB"
+database_name = "family_board"
+database_id = "2e3a039c-a84c-4e3e-ae53-a216805612ba"
+migrations_dir = "migrations"
+
+[env.live.triggers]
+crons = ["*/15 * * * *"]
+
+[env.live.ai]
+binding = "AI"
+
+[env.live.version_metadata]
 binding = "CF_VERSION_METADATA"
 
 # The test copy: its own board and its own database, so trying a change never touches real families.

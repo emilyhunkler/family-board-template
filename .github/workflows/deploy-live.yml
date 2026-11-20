@@ -1,0 +1,52 @@
+# Puts the main branch on the live board (the Worker familyboard-kitchen and the family_board database).
+# It never runs by itself. A person starts it from the Actions tab ("Run workflow") once the change has been
+# checked on the test copy, and has to type "live" to confirm. Best time: the night after pay day.
+#
+# Before deploying it records a restore point for the live database. Cloudflare keeps the database's
+# history for 30 days, so the restore command in the run's summary puts it back to just before the release.
+# (No copy of families' data is saved here, because this repository and its logs are public.)
+name: Deploy live board
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "live" to put main on the board families use'
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: deploy-live
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event.inputs.confirm == 'live'
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run the tests
+        run: npm test
+      - run: npm install --no-audit --no-fund
+      - name: Record a restore point for the live database
+        run: |
+          npx wrangler d1 time-travel info family_board --env live --json > restore-point.json
+          BOOKMARK=$(node -e "const j=require('./restore-point.json'); console.log(j.bookmark || '')")
+          if [ -z "$BOOKMARK" ]; then echo "::error::Couldn't get a restore point, so nothing was deployed."; exit 1; fi
+          {
+            echo "### Live board release"
+            echo "Commit \`${GITHUB_SHA::7}\`, started by ${GITHUB_ACTOR}."
+            echo ""
+            echo "To put the database back to just before this release:"
+            echo "\`npx wrangler d1 time-travel restore family_board --env live --bookmark=${BOOKMARK}\`"
+            echo ""
+            echo "To put the code back: \`npx wrangler rollback --env live\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Add any new database tables
+        run: npx wrangler d1 migrations apply DB --remote --env live
+      - name: Deploy the live board
+        run: npx wrangler deploy --env live
