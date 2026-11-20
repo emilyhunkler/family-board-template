@@ -8,6 +8,7 @@ import { makeVapid, sendPush } from './lib/push.js';
 import * as A from './lib/auth.js';
 import * as O from './lib/onboard.js';
 import * as AC from './lib/account.js';
+import * as BK from './lib/bank.js';
 
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
 const err = (msg, status = 400, extra = {}) => json({ error: msg, ...extra }, status);
@@ -146,6 +147,16 @@ async function board(env, cfg, req, url) {
   const dayWx = weather?.days?.find((d) => d.date === today); const tip = weather ? H.weatherTip(cfg, dayWx, weather.current) : '';
   // The stars each kid could earn this week, as it stood when the week began (see weekSummary).
   const live = !url.searchParams.get('date'); const barRow = await getSetting(env, 'weekbar', null); const bars = barRow?.week === wk ? barRow.kids || {} : {}; let newBar = false;
+  // Kids' bank: money in and out, cash asked for, weeks already paid, and saved pay day totals.
+  const bankOn = cfg.bank?.on !== false; const payDayYmd = addDaysYmd(wk, 6);
+  const closed = BK.payDayClosed(today, payDayYmd, parts(now, zone), cfg.week?.closesAt, live);
+  const [moneyRows, payouts, cashReqs, snaps] = await Promise.all([
+    env.DB.prepare("SELECT kid, kind, amount, note, created_at FROM ledger WHERE kind IN ('jar','cashout') AND household_id=? ORDER BY id DESC LIMIT 300").bind(env.HID).all().then((r) => r.results),
+    env.DB.prepare("SELECT kid, week FROM ledger WHERE kind='payout' AND week>=? AND household_id=?").bind(addDaysYmd(wk, -7 * (BK.KEEP_WEEKS + 1)), env.HID).all().then((r) => r.results),
+    // Before the bank's table exists (its migration not applied yet), there are just no cash requests.
+    (async () => (await env.DB.prepare("SELECT * FROM cash_requests WHERE (status='pending' OR requested_at>?) AND household_id=? ORDER BY id DESC").bind(new Date(Date.now() - 14 * 86400000).toISOString(), env.HID).all()).results)().catch(() => []),
+    getSetting(env, 'paychecks', {}),
+  ]);
   const kids = [];
   for (const k of cfg.kids) {
     const allTodos = todos; const dayList = P.kidDay(k.id, today, cfg, instToday, checks);
@@ -153,14 +164,19 @@ async function board(env, cfg, req, url) {
     const lifetime = (lifetimeChecks[k.id] || 0) + (lifetimeApproved[k.id] || 0) + ledger.filter((l) => l.kid === k.id && l.kind === 'grant').reduce((s, l) => s + l.stars, 0);
     const spent = ledger.filter((l) => l.kid === k.id && (l.kind === 'wardrobe' || l.kind === 'reward')).reduce((s, l) => s + l.stars, 0);
     const ward = await getSetting(env, 'wardrobe:' + k.id, { owned: [], look: {} });
-    const jar = ledger.filter((l) => l.kid === k.id && l.kind === 'jar').reduce((s, l) => s + l.amount, 0);
-    kids.push({ ...k, today: dayList, week, streak: st, lifetime, level: P.level(lifetime, cfg), wardrobe: { ...ward, balance: lifetime - spent, spent }, jar, goal: await getSetting(env, 'goal:' + k.id, null),
+    const money = BK.bankOf(k.id, ledger, cashReqs); const due = bankOn ? BK.dueFor(k.id, { wk, closed, week, snaps, paidWeeks: new Set(payouts.filter((x) => x.kid === k.id).map((x) => x.week)) }) : [];
+    const bank = { on: bankOn, ...money, requests: cashReqs.filter((r) => r.kid === k.id).slice(0, 6), history: BK.historyOf(k.id, moneyRows) };
+    // jar: what's in the bank now (the savings goal fills from it).
+    kids.push({ ...k, today: dayList, week, streak: st, lifetime, level: P.level(lifetime, cfg), wardrobe: { ...ward, balance: lifetime - spent, spent }, jar: money.balance, bank, payday: due[0] || null, paydayCount: due.length, goal: await getSetting(env, 'goal:' + k.id, null),
       quiz: quizState(cfg, k, quizRuns.filter((q) => q.kid === k.id), wk),
       rewardRequests: rewardReqs.filter((r) => r.kid === k.id), pendingClaims: claims.filter((c) => c.kid === k.id && c.status === 'pending'), weekClaims: claims.filter((c) => c.kid === k.id && c.date >= wk) });
   }
   if (live && newBar) await setSetting(env, 'weekbar', { week: wk, kids: bars });
+  // Once pay day has closed, save each kid's total, so it can still be collected in the days after.
+  if (live && closed && bankOn) { const cur = Object.fromEntries(kids.map((k) => [k.id, { total: k.week.total, base: k.week.base, bonus: k.week.bonusDollars }]));
+    if (JSON.stringify(snaps?.[wk]?.kids) !== JSON.stringify(cur)) await setSetting(env, 'paychecks', BK.withSnapshot(snaps, wk, cur, nowIso())); }
   const turnText = instToday.filter((i) => i.turn).map((i) => `${cfg.kids.find((k) => k.id === i.kids[0])?.name} has ${i.title.toLowerCase()} today`).join('. ');
-  return { version: env.CF_VERSION_METADATA?.id || 'dev', stage: env.STAGE || '', now: now.toISOString(), today, zone, weekStart: wk, calWeekStart, payDay: addDaysYmd(wk, 6), isSchoolDay: P.isSchoolDay(today, cfg), tomorrowSchool: P.isSchoolDay(addDaysYmd(today, 1), cfg),
+  return { version: env.CF_VERSION_METADATA?.id || 'dev', stage: env.STAGE || '', now: now.toISOString(), today, zone, weekStart: wk, calWeekStart, payDay: payDayYmd, payDayClosed: closed, isSchoolDay: P.isSchoolDay(today, cfg), tomorrowSchool: P.isSchoolDay(addDaysYmd(today, 1), cfg),
     config: publicConfig(cfg), weather, tip, events: evs.events, rewardRequests: rewardReqs, photoIds, calendarStatus: evs.status, sampleData: evs.sample, kids, todos, claims, groceries, meals, notes, turnText, recent: logs, instancesToday: instToday };
 }
 
@@ -177,6 +193,33 @@ async function dayPlans(env, cfg, today, wk, todos, save, instToday) {
   if (JSON.stringify(plans[today]) !== JSON.stringify(instToday)) { plans[today] = instToday; writes.push(put(today, instToday)); }
   for (let d = wk; d < today; d = addDaysYmd(d, 1)) if (!plans[d]) { plans[d] = P.instancesForDay(d, cfg, todos); writes.push(put(d, plans[d])); }
   await Promise.all(writes); return plans;
+}
+
+// ---------- kids' bank ----------
+const dollars = (n) => '$' + BK.cents(n).toFixed(2);
+// A kid's bank right now, straight from the database. Null if the bank's table isn't there yet.
+async function bankState(env, kid) {
+  const rows = (await env.DB.prepare("SELECT kid, kind, SUM(amount) AS amount FROM ledger WHERE kid=? AND kind IN ('jar','cashout') AND household_id=? GROUP BY kid, kind").bind(kid, env.HID).all()).results;
+  const reqs = await (async () => (await env.DB.prepare("SELECT kid, amount, status FROM cash_requests WHERE kid=? AND status='pending' AND household_id=?").bind(kid, env.HID).all()).results)().catch(() => null);
+  return reqs ? BK.bankOf(kid, rows, reqs) : null;
+}
+// Pay day: the kid picks "Cash please" or "Bank it". Either way the week's pay goes into their bank; cash
+// please also asks for all of it as cash, which a grown-up says yes to once it's handed over. A week is
+// collected once: the payout row is only written if that week has none yet.
+async function collectPay(env, cfg, req, url, body) {
+  if (cfg.bank?.on === false) return err("The kids' bank is turned off");
+  const b = await board(env, cfg, req, new URL('/', url)); const k = b.kids.find((x) => x.id === body.kid); if (!k) return err('kid', 404);
+  const due = k.payday; if (!due || (body.week && body.week !== due.week)) return err('That pay day was already collected', 409);
+  const cash = body.choice === 'cash'; const at = nowIso();
+  const r = await env.DB.prepare("INSERT INTO ledger(week,kid,kind,amount,stars,note,created_at,household_id) SELECT ?,?,'payout',?,0,?,?,? WHERE NOT EXISTS (SELECT 1 FROM ledger WHERE household_id=? AND kid=? AND kind='payout' AND week=?)")
+    .bind(due.week, k.id, due.total, cash ? 'pay day: cash please' : 'pay day: banked', at, env.HID, env.HID, k.id, due.week).run();
+  if (!r.meta?.changes) return err('That pay day was already collected', 409);
+  await env.DB.prepare('INSERT INTO ledger(week,kid,kind,amount,stars,note,created_at,household_id) VALUES(?,?,?,?,?,?,?,?)').bind(due.week, k.id, 'jar', due.total, 0, 'pay day', at, env.HID).run();
+  let asked = false;
+  if (cash) { asked = await (async () => { await env.DB.prepare('INSERT INTO cash_requests(kid,amount,status,note,requested_at,household_id) VALUES(?,?,?,?,?,?)').bind(k.id, due.total, 'pending', 'pay day', at, env.HID).run(); return true; })().catch(() => false);
+    if (asked) await notify(env, 'reward', `${k.name} would like ${dollars(due.total)} cash 💵`, 'Pay day! Hand it over, then tap to say you did.', '/#today'); }
+  await log(env, 'bank', k.id, cash ? `${k.name} collected ${dollars(due.total)} and asked for cash` : `${k.name} banked ${dollars(due.total)}`);
+  return json({ ok: true, choice: cash ? 'cash' : 'bank', asked, amount: due.total, balance: BK.cents(k.bank.balance + due.total), more: Math.max(0, (k.paydayCount || 1) - 1) });
 }
 
 // ---------- mutations ----------
@@ -560,6 +603,28 @@ export default {
       if (path.startsWith('/api/photo/') && method === 'GET') {
         const ph = await env.DB.prepare('SELECT data, mime FROM photos WHERE id=? AND household_id=?').bind(+path.split('/')[3], env.HID).first(); if (!ph) return err('no photo', 404);
         const bin = Uint8Array.from(atob(ph.data), (c) => c.charCodeAt(0)); return new Response(bin, { headers: { 'content-type': ph.mime, 'cache-control': 'private, max-age=31536000, immutable' } });
+      }
+      // ---- kids' bank ----
+      if (path === '/api/bank/payday' && method === 'POST') return collectPay(env, cfg, req, url, body);
+      if (path === '/api/bank/request' && method === 'POST') {
+        if (cfg.bank?.on === false) return err("The kids' bank is turned off"); const k = cfg.kids.find((x) => x.id === body.kid); if (!k) return err('kid', 404);
+        const amount = BK.cents(body.amount); if (!(amount > 0)) return err('Pick how much cash');
+        const st = await bankState(env, k.id); if (!st) return err('The bank is still being set up. Try again later.', 503);
+        if (amount > st.available + 0.001) return err(st.available > 0 ? `You can ask for up to ${dollars(st.available)}` : 'Nothing in the bank to ask for yet', 409);
+        await env.DB.prepare('INSERT INTO cash_requests(kid,amount,status,note,requested_at,household_id) VALUES(?,?,?,?,?,?)').bind(k.id, amount, 'pending', 'asked', nowIso(), env.HID).run();
+        await log(env, 'bank', k.id, `${k.name} asked for ${dollars(amount)} cash`); await notify(env, 'reward', `${k.name} would like ${dollars(amount)} cash 💵`, 'Hand it over, then tap to say you did.', '/#today');
+        return json({ ok: true, amount });
+      }
+      if (path === '/api/bank/decide' && method === 'POST') {
+        if (!admin()) return denyAdmin(req);
+        const rq = await env.DB.prepare('SELECT * FROM cash_requests WHERE id=? AND household_id=?').bind(+body.id, env.HID).first(); if (!rq || rq.status !== 'pending') return err('That one was already answered', 409);
+        if (body.approve) { const st = await bankState(env, rq.kid); if (rq.amount > st.balance + 0.001) return err(`Only ${dollars(st.balance)} in the bank`, 409); }
+        // Answer it first, so two taps can't take the money out twice.
+        const up = await env.DB.prepare("UPDATE cash_requests SET status=?, decided_at=? WHERE id=? AND household_id=? AND status='pending'").bind(body.approve ? 'approved' : 'denied', nowIso(), rq.id, env.HID).run();
+        if (!up.meta?.changes) return err('That one was already answered', 409);
+        if (body.approve) await env.DB.prepare('INSERT INTO ledger(week,kid,kind,amount,stars,note,created_at,household_id) VALUES(?,?,?,?,?,?,?,?)').bind(P.payWeekStart(today, cfg), rq.kid, 'cashout', rq.amount, 0, 'cash handed over', nowIso(), env.HID).run();
+        const kname = cfg.kids.find((x) => x.id === rq.kid)?.name || rq.kid; await log(env, 'bank', rq.kid, body.approve ? `${kname} got ${dollars(rq.amount)} cash from the bank` : `${kname}'s cash ask was not this time`);
+        return json({ ok: true });
       }
       if (path === '/api/photo' && method === 'POST') {
         if (!admin()) return denyAdmin(req); const data = String(body.data || '').replace(/^data:[^,]+,/, ''); if (!data || data.length > 1400000) return err('photo too large');

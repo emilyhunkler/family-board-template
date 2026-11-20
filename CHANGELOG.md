@@ -7,6 +7,10 @@ date when it goes live (see RELEASING.md).
 ## Unreleased
 
 ### For families
+- Kids' bank: each kid has a bank balance that a grown-up keeps safe, with a list of money in and out. Any savings jar money a kid already had is their opening balance.
+- Cha-ching pay day: once the week closes on your family's pay day, each kid gets a pay day screen with coins, a sound and the week's pay, and picks "Cash please" or "Bank it". Pay not collected that night waits for them.
+- "Ask for cash" on each kid's page, any time, up to what's in their bank. A grown-up taps "I handed it over" (or "Not now") in grown-up settings, and only then does it leave the bank.
+- Grown-ups can turn the bank off under Money. With it off, pay day works as before.
 - Stars and pay a kid already has no longer go down when grown-ups change the chores. The week's bar is set when the week starts, so a chore or one-off job added mid-week is a chance to earn more. Pay never goes over the allowance. (#3)
 - A take-turns chore that's already done stays with the kid who did it, even if the turns move later. (#3)
 - New "My week" chart on each kid's page: one bar per day for stars earned, bonus, missed and still to earn. Tap a day to see its chores. (#3)
@@ -14,6 +18,8 @@ date when it goes live (see RELEASING.md).
 - The board stays within Cloudflare's free plan: calendars no longer use up each screen's time allowance, so screens stop showing errors or an old calendar. A daily repeat that started many years ago shows again.
 
 ### Behind the scenes
+- New `cash_requests` table (migration 0010). Money out of the bank is a new `cashout` ledger row; money in is a `jar` row. Pay day totals are kept for 6 weeks in the `paychecks` setting, and a week can only be paid once.
+- The pretend test family's pay day is the day it's loaded, so the pay day screen shows straight away, and Lily starts with $4 saved.
 - New `day_plans` table saves each day's chore list (migration 0009). The week's starting bar is kept in the `weekbar` setting. (#3)
 - Deploys from GitHub: the test copy updates after every merge, and the live board goes out only when someone runs "Deploy live board" by hand, with a restore point first.
 - Staging: a separate test board and database (`npm run deploy:staging`), tests on every pull request, a backup before every live deploy, and a release checklist.

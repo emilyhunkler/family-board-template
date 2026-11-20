@@ -228,4 +228,13 @@ html.dark .wkit.got .mk{color:#a6e2c1}
 html.dark .wkit.miss .mk{color:#dea699}
 html.dark .wkmoney b{color:#d6e4f7}
 html.dark .banner.stage{background:#1e2639;color:#b1c7e6}
+html.dark .pdhead{color:#d6e4f7}
+html.dark .pdamt{color:#a6e2c1}
+html.dark .pill.pdcash{background:#7fd6b0}
+html.dark .paybadge{background:#ffc857}
+html.dark .bankbal b{color:#a6e2c1}
+html.dark .bankmore{color:#d6e4f7}
+html.dark .bh.in b{color:#a6e2c1}
+html.dark .bh.out b{color:#e6b19c}
+html.dark .askamt{color:#d6e4f7}
 html.dark body{background:linear-gradient(160deg,#111a26 0%,#13201d 55%,#121a2b 100%)}
