@@ -6,7 +6,7 @@ import { useVoice, speak, dictate, primeSpeech } from './voice.js';
 import { TRIVIA, JOKES, FACTS, WOULD_YOU_RATHER, GEAR } from './fun.js';
 import { BrainCard } from './brain.js';
 import { AppSheet, AppNudge, nudgeWanted, hasAppAlready, reopenGuide, inApp } from './install.js';
-import { ideaOfDay, doneThisWeek, playWatch, isPlayOnly, goPlayWords } from './ideas.js';
+import { ideaOfDay, doneThisWeek, playWatch, isPlayOnly, goPlayWords, timesUpWords } from './ideas.js';
 export const html = htm.bind(h);
 
 // ---------- helpers ----------
@@ -598,6 +598,14 @@ function GoPlay({ b, quiet, onKid, onSettings, onEnd, withPin }) {
   const words = goPlayWords({ kids: b.kids, isSchoolDay: b.isSchoolDay, now: t, sleepFrom: b.config.ambient?.sleepFrom, idea: todayIdea(b), pet: b.config.family.dog });
   const left = (k) => k.today.filter((x) => !x.doneByOther && !x.done).length; const open = b.kids.filter((k) => k.payday || left(k));
   const back = fmtClock(new Date(quiet.until));
+  // A fresh break opens with "Time's up!" and a question to think about, then "Okay, what now?" shows the plan.
+  const [up, setUp] = useState(!!quiet.fresh);
+  if (up) { const u = timesUpWords({ minutes: b.config.nudge?.minutes || 5, kids: b.kids, seed: quiet.seed });
+    return html`<div class="goplay" onClick=${(e) => e.stopPropagation()}><div class="gpcard gpup">
+      <div class="mascot gpm" dangerouslySetInnerHTML=${{ __html: MASCOT }}></div>
+      <h2>${u.title}</h2><p class="gpsay">${u.text}</p><p class="gphint">${u.hint}</p>
+      <button class="pill gpnext" onClick=${() => { setUp(false); speak(words.text); }}>Okay, what now? 👉</button>
+    </div></div>`; }
   return html`<div class="goplay" onClick=${(e) => e.stopPropagation()}><div class="gpcard">
     <div class="mascot gpm" dangerouslySetInnerHTML=${{ __html: MASCOT }}></div>
     <h2>${words.title}</h2><p class="gpsay">${words.text}</p>
@@ -807,8 +815,9 @@ function App() {
   useEffect(() => { if (!b || payOpen || parents || parentView) return; const k = b.kids.find((x) => x.id === page); if (k?.payday && payShut[k.id] !== k.payday.week) openPay(k); }, [b, page, parents, payOpen, payShut]);
   // "Go play!": watches the kitchen screen's taps (see play in the helpers), then rests the board for a while.
   const [quiet, setQuiet] = useState(quietSaved);
-  const startQuiet = useCallback((preview) => { if (!b) return; const n = b.config.nudge || {}; const until = Date.now() + (preview ? 2 : Math.max(1, n.quiet || 15)) * 60000; if (!preview) { try { localStorage.setItem(QUIET_KEY, String(until)); } catch {} } play.reset(); setQuiet({ until, preview: !!preview });
-    const w = goPlayWords({ kids: b.kids, isSchoolDay: b.isSchoolDay, now: new Date(), sleepFrom: b.config.ambient?.sleepFrom, idea: todayIdea(b), pet: b.config.family.dog }); speak(w.text); }, [b]);
+  const startQuiet = useCallback((preview) => { if (!b) return; const n = b.config.nudge || {}; const until = Date.now() + (preview ? 2 : Math.max(1, n.quiet || 15)) * 60000; if (!preview) { try { localStorage.setItem(QUIET_KEY, String(until)); } catch {} } play.reset();
+    const seed = Math.floor(Date.now() / 60000); setQuiet({ until, preview: !!preview, fresh: true, seed });
+    speak(timesUpWords({ minutes: n.minutes || 5, kids: b.kids, seed }).text); }, [b]);
   const endQuiet = () => { try { localStorage.removeItem(QUIET_KEY); } catch {} play.reset(); setQuiet(null); };
   useEffect(() => { const tap = () => play.tap(Date.now()); addEventListener('pointerdown', tap, { passive: true, capture: true }); return () => removeEventListener('pointerdown', tap, { capture: true }); }, []);
   useEffect(() => { const i = setInterval(() => {

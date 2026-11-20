@@ -158,6 +158,23 @@ export function goPlayWords({ kids = [], isSchoolDay, now, sleepFrom, idea, pet 
   if (left.length) return { title: 'Jobs first, then go play! 💪', text: `${hi}${list(left.map((k) => `${k.name} has ${count(mine(k).length, 'job')} left`))}. Then${idea ? `: ${idea.emoji} ${lower(idea.text)}` : ' go play'}!` };
   return { title: 'Time to go play! 🌳', text: idea ? `${hi}Screens off. Today’s family idea: ${idea.emoji} ${lower(idea.text)}.` : `${hi}Screens off. Go play outside, read a book or make something!` };
 }
+// The "Time's up!" moment that opens a break: a kind, playful nudge to stop and think, never a telling-off.
+// Short enough for a 7-year-old to read. The wording changes from break to break.
+export const TIMES_UP = [
+  (n) => `You’ve been tapping for ${n}. Did that get a job done?`,
+  (n) => `Whoa, ${n} of tapping! What did it get done?`,
+  (n) => `${n} went by. Was that the best thing to do right now?`,
+  (n) => `Hmm, ${n} of tapping. Is it time for something better?`,
+  (n) => `${n} of tapping, and no jobs ticked off yet. Let’s fix that!`,
+];
+export function timesUpWords({ minutes = 5, kids = [], seed = 0 }) {
+  const n = count(Math.max(1, Math.round(minutes)), 'minute');
+  const left = kids.map((k) => [k.name, (k.today || []).filter((t) => !t.doneByOther && !t.done).length]).filter(([, c]) => c > 0);
+  const hint = left.length === 1 ? `${left[0][0]} still has ${count(left[0][1], 'job')} to do.`
+    : left.length ? `${list(left.map(([name, c], i) => (i ? `${name} has ${c}` : `${name} has ${count(c, 'job')} left`)))}.`
+    : 'All the jobs are done, so let’s go do something fun together!';
+  return { title: 'Time’s up! ⏰', text: TIMES_UP[Math.abs(seed | 0) % TIMES_UP.length](n).replace(/^./, (c) => c.toUpperCase()), hint };
+}
 const count = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 const list = (xs) => (xs.length < 2 ? xs.join('') : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1]);
 const lower = (s) => s.charAt(0).toLowerCase() + s.slice(1);

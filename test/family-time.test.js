@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-import { IDEAS, ideaPool, ideaOfDay, seasonOf, skyOf, playWatch, isPlayOnly, goPlayWords, PLAY_GAP } from '../public/ideas.js';
+import { IDEAS, ideaPool, ideaOfDay, seasonOf, skyOf, playWatch, isPlayOnly, goPlayWords, timesUpWords, TIMES_UP, PLAY_GAP } from '../public/ideas.js';
 import { ideaState, ideaStep, KEEP } from '../src/lib/ideas.js';
 import * as A from '../src/lib/auth.js';
 
@@ -76,6 +76,19 @@ test('what the mascot says when it sends everyone off', () => {
   const bed = goPlayWords({ kids: [], isSchoolDay: false, now: at(20, 30), sleepFrom: '21:00', idea }); assert.match(bed.title, /wind down/);
   const school = goPlayWords({ kids: [kid('Ava', [{ title: 'Brush teeth', done: false, when: 'morning' }])], isSchoolDay: true, now: at(7), sleepFrom: '21:00', idea }); assert.match(school.text, /get ready for school\. Ava has 1 thing to do/);
   const noIdea = goPlayWords({ kids: [], isSchoolDay: false, now: at(14), idea: null }); assert.match(noIdea.text, /Go play outside/);
+});
+
+test('"Time\u2019s up!" asks a kind question first, with a different wording each time', () => {
+  const kids = [{ name: 'Ava', today: [{ done: false }, { done: false }] }, { name: 'Lily', today: [{ done: true }] }];
+  const all = TIMES_UP.map((_, i) => timesUpWords({ minutes: 5, kids, seed: i }));
+  assert.equal(new Set(all.map((w) => w.text)).size, TIMES_UP.length);
+  for (const w of all) { assert.equal(w.title, 'Time’s up! ⏰'); assert.match(w.text, /5 minutes/); assert.match(w.text, /^[A-Z0-9]/); assert.ok(w.text.length <= 70, w.text); }
+  assert.equal(all[0].text, 'You’ve been tapping for 5 minutes. Did that get a job done?');
+  assert.equal(all[0].hint, 'Ava still has 2 jobs to do.');
+  assert.equal(timesUpWords({ minutes: 1, kids: [], seed: 1 }).text, 'Whoa, 1 minute of tapping! What did it get done?');
+  assert.match(timesUpWords({ kids: [] }).hint, /All the jobs are done/);
+  assert.equal(timesUpWords({ kids: [{ name: 'Ava', today: [{}] }, { name: 'Lily', today: [{}, {}] }] }).hint, 'Ava has 1 job left and Lily has 2.');
+  assert.equal(timesUpWords({ kids: [], seed: -3 }).text, timesUpWords({ kids: [], seed: 3 }).text);
 });
 
 test("the board keeps today's idea: another one, done once, a fresh start each day", () => {
