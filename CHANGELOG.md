@@ -6,6 +6,8 @@ date when it goes live (see RELEASING.md).
 
 ## Unreleased
 
+## 2026-11-20
+
 ### For families
 - The bottom tab bar shows each kid as their own avatar again. A pet sticker on a kid's avatar was showing so big there that it covered the kid's face.
 - The photo screensaver no longer runs under the iPad's clock, Wi-Fi and battery at the top of the screen when the board is installed on the home screen.
