@@ -67,30 +67,56 @@ async function loadIcs(env, url, req) {
     return (await r.text()).replace(/\{kid1\}/g, k[0]?.name || 'Alex').replace(/\{kid2\}/g, k[1]?.name || k[0]?.name || 'Sam').replace(/\{parent1\}/g, p[0]?.name || 'Mom').replace(/\{parent2\}/g, p[1]?.name || p[0]?.name || 'Dad'); }
   const r = await fetch(url, { headers: { 'User-Agent': 'family-board/1.0' } }); if (!r.ok) throw new Error('calendar ' + r.status); return r.text();
 }
-async function getEvents(env, cfg, req, force = false) {
-  const zone = cfg.zone; const today = ymd(new Date(), zone);
+// A calendar's events are worked out from its feed only when something changed: the feed itself, the day, or
+// the family's time zone. Working them out is the costliest thing the board does, so the 15-minute job does it
+// and screens just read the saved result. The job still downloads each feed, but when the feed is the same as
+// last time (ignoring the download time stamp Google puts on every event) it only marks the saved copy fresh.
+const CAL_FRESH = 60 * 60 * 1000; // screens use the saved copy this long; the job refreshes it every 15 minutes
+async function feedSig(text) { return A.sha256hex(text.replace(/^DTSTAMP[:;].*$/gm, '')); }
+async function calendarEvents(env, cal, req, zone, today, refresh) {
+  const key = 'cal:' + cal.id; const sigKey = 'calsig:' + cal.id;
+  const row = await env.DB.prepare('SELECT value, fetched_at FROM cache WHERE key=? AND household_id=?').bind(key, env.HID).first();
+  if (row && !refresh && Date.now() - Date.parse(row.fetched_at) < CAL_FRESH) return JSON.parse(row.value);
+  const save = (k, v) => env.DB.prepare('INSERT INTO cache(key,value,fetched_at,household_id) VALUES(?,?,?,?) ON CONFLICT(household_id,key) DO UPDATE SET value=excluded.value, fetched_at=excluded.fetched_at').bind(k, v, nowIso(), env.HID).run();
+  let text; try { text = await loadIcs(env, cal.url, req); } catch (e) { if (row) return refresh ? null : JSON.parse(row.value); throw e; }
+  const sig = await feedSig(text); const was = await env.DB.prepare('SELECT value FROM cache WHERE key=? AND household_id=?').bind(sigKey, env.HID).first();
+  const stamp = JSON.stringify({ sig, day: today, zone });
+  if (row && was?.value === stamp) { await env.DB.prepare('UPDATE cache SET fetched_at=? WHERE key=? AND household_id=?').bind(nowIso(), key, env.HID).run(); return refresh ? null : JSON.parse(row.value); }
   const from = zoned(...addDaysYmd(today, -7).split('-').map(Number), 0, 0, 0, zone); const to = zoned(...addDaysYmd(today, 62).split('-').map(Number), 0, 0, 0, zone);
+  const evs = expandEvents(parseICS(text, zone, { from, to }), from, to, zone, { calendar: cal.id });
+  await save(key, JSON.stringify(evs)); await save(sigKey, stamp); return refresh ? null : evs;
+}
+// With refresh (the 15-minute job and the Refresh button), only bring the saved copies up to date and say how
+// each calendar did; screens call it without, and get the events.
+async function getEvents(env, cfg, req, refresh = false) {
+  const zone = cfg.zone; const today = ymd(new Date(), zone);
   const cals = cfg.calendars.filter((c) => c.enabled !== false && c.url); const sample = cals.length === 0;
   const list = sample ? [{ ...cfg.calendars[0], url: 'sample' }] : cals; let all = []; const status = {};
   for (const cal of list) {
     try {
-      const evs = await cached(env, 'cal:' + cal.id, 15 * 60 * 1000, async () => { const text = await loadIcs(env, cal.url, req); return expandEvents(parseICS(text, zone), from, to, zone, { calendar: cal.id }); }, force);
-      status[cal.id] = 'ok'; all = all.concat(evs.map((e) => ({ ...e, color: cal.color, owner: cal.owner })));
+      const evs = await calendarEvents(env, cal, req, zone, today, refresh);
+      status[cal.id] = 'ok'; if (evs) all = all.concat(evs.map((e) => ({ ...e, color: cal.color, owner: cal.owner })));
     } catch (e) { status[cal.id] = 'error: ' + e.message; }
   }
+  if (refresh) return { status, sample };
   // dedupe (same uid in two calendars)
   const seen = new Set(); all = all.filter((e) => { const k = e.id + '|' + e.start; if (seen.has(k)) return false; seen.add(k); return true; });
   all.sort((a, b) => a.start.localeCompare(b.start) || (a.allDay ? -1 : 1));
-  return { events: all.map((e) => decorate(e, cfg)), status, sample };
+  const same = new Map(); // repeats of one event share their title and place, so match people and places once
+  return { events: all.map((e) => decorate(e, cfg, same)), status, sample };
 }
-function decorate(e, cfg) {
-  const zone = cfg.zone; const people = H.eventPeople(e, cfg); const place = H.placeFor(e, cfg); const date = ymd(new Date(e.start), zone);
-  const out = { ...e, date, endDate: ymd(new Date(new Date(e.end).getTime() - 1), zone), people, emoji: H.eventEmoji(e.title), timeLabel: e.allDay ? 'all day' : H.hhmm(e.start, zone), endLabel: e.allDay ? '' : H.hhmm(e.end, zone) };
-  const kid = cfg.kids.find((k) => people.includes(k.id)); const par = cfg.family.parents.find((p) => people.includes(p.id));
-  const ppl = [...cfg.kids.filter((k) => people.includes(k.id)), ...cfg.family.parents.filter((p2) => people.includes(p2.id))];
-  out.color = kid ? kid.color : par ? par.color : e.color; out.who = ppl.length ? ppl.map((x) => x.name).join(' and ').replace(/ and (?=.* and )/g, ', ') : 'Family';
-  out.dots = ppl.map((x) => ({ letter: x.name[0], color: x.color, name: x.name }));
-  if (place && !e.allDay) { const lead = (P.num(place.driveMin, 0) + P.num(place.bufferMin, 0)) * 60000; out.place = { ...place, leaveBy: H.hhmm(new Date(new Date(e.start).getTime() - lead), zone), leaveAt: new Date(new Date(e.start).getTime() - lead).toISOString() }; }
+function decorate(e, cfg, same = new Map()) {
+  const zone = cfg.zone; const k = e.title + '\u0000' + e.location + '\u0000' + e.owner + '\u0000' + e.color; let who = same.get(k);
+  if (!who) {
+    const people = H.eventPeople(e, cfg); const kid = cfg.kids.find((x) => people.includes(x.id)); const par = cfg.family.parents.find((p) => people.includes(p.id));
+    const ppl = [...cfg.kids.filter((x) => people.includes(x.id)), ...cfg.family.parents.filter((p2) => people.includes(p2.id))];
+    who = { people, place: H.placeFor(e, cfg), emoji: H.eventEmoji(e.title), color: kid ? kid.color : par ? par.color : e.color,
+      who: ppl.length ? ppl.map((x) => x.name).join(' and ').replace(/ and (?=.* and )/g, ', ') : 'Family', dots: ppl.map((x) => ({ letter: x.name[0], color: x.color, name: x.name })) };
+    same.set(k, who);
+  }
+  const { place, ...rest } = who; const start = new Date(e.start);
+  const out = { ...e, date: ymd(start, zone), endDate: ymd(new Date(new Date(e.end).getTime() - 1), zone), ...rest, timeLabel: e.allDay ? 'all day' : H.hhmm(start, zone), endLabel: e.allDay ? '' : H.hhmm(e.end, zone) };
+  if (place && !e.allDay) { const lead = (P.num(place.driveMin, 0) + P.num(place.bufferMin, 0)) * 60000; out.place = { ...place, leaveBy: H.hhmm(new Date(start.getTime() - lead), zone), leaveAt: new Date(start.getTime() - lead).toISOString() }; }
   return out;
 }
 
@@ -465,7 +491,9 @@ export default {
     const req = new Request('https://family-board.local/');
     // Once a day, drop saved voice clips nobody has played in 90 days.
     const nowD = new Date(); if (nowD.getUTCHours() === 9 && nowD.getUTCMinutes() < 15) ctx.waitUntil(env.DB.prepare('DELETE FROM tts_cache /* all-families: shared voice clips */ WHERE used_at < ?').bind(new Date(Date.now() - 90 * 86400000).toISOString()).run().catch(() => {}));
-    ctx.waitUntil((async () => { for (const id of ids) { const fenv = { ...env, HID: id }; try { const cfg = await getConfig(fenv); await Promise.all([getEvents(fenv, cfg, req, true), cached(fenv, wxKey(cfg), 0, () => H.fetchWeather(cfg), true), morningBriefing(fenv, cfg, req), payDayNotice(fenv, cfg, req).catch(() => {})]); } catch {} } })());
+    // Start with a different family each run, so if one family's work ever runs out of time the others still get theirs.
+    const order = [...ids]; const turn = Math.floor(Date.now() / (15 * 60000)) % order.length; order.push(...order.splice(0, turn));
+    ctx.waitUntil((async () => { for (const id of order) { const fenv = { ...env, HID: id }; try { const cfg = await getConfig(fenv); await Promise.all([getEvents(fenv, cfg, req, true), cached(fenv, wxKey(cfg), 0, () => H.fetchWeather(cfg), true), morningBriefing(fenv, cfg, req), payDayNotice(fenv, cfg, req).catch(() => {})]); } catch {} } })());
   },
   async fetch(req, env, ctx) {
     const url = new URL(req.url); const path = url.pathname;
