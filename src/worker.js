@@ -116,11 +116,14 @@ async function board(env, cfg, req, url) {
   const lifetimeApproved = await env.DB.prepare("SELECT kid, SUM(stars) AS s FROM quest_claims WHERE status='approved' AND household_id=? GROUP BY kid").bind(env.HID).all().then((r) => Object.fromEntries(r.results.map((x) => [x.kid, x.s])));
   const lifetimeChecks = await env.DB.prepare('SELECT kid, SUM(points) AS s FROM checks WHERE household_id=? GROUP BY kid').bind(env.HID).all().then((r) => Object.fromEntries(r.results.map((x) => [x.kid, x.s])));
   const openTodos = todos.filter((t) => !t.done_at); const instToday = P.instancesForDay(today, cfg, openTodos.concat(todos.filter((t) => t.done_at && t.date === today)));
+  const plans = await dayPlans(env, cfg, today, wk, todos, !url.searchParams.get('date'), instToday);
   const dayWx = weather?.days?.find((d) => d.date === today); const tip = weather ? H.weatherTip(cfg, dayWx, weather.current) : '';
+  // The stars each kid could earn this week, as it stood when the week began (see weekSummary).
+  const live = !url.searchParams.get('date'); const barRow = await getSetting(env, 'weekbar', null); const bars = barRow?.week === wk ? barRow.kids || {} : {}; let newBar = false;
   const kids = [];
   for (const k of cfg.kids) {
     const allTodos = todos; const dayList = P.kidDay(k.id, today, cfg, instToday, checks);
-    const week = P.weekSummary(k, wk, cfg, checks, allTodos, claims, today); const st = P.streak(k, cfg, checks, allTodos, today);
+    const week = P.weekSummary(k, wk, cfg, checks, allTodos, claims, today, plans, bars[k.id]); if (!(k.id in bars)) { bars[k.id] = week.possible; newBar = true; } const st = P.streak(k, cfg, checks, allTodos, today, plans);
     const lifetime = (lifetimeChecks[k.id] || 0) + (lifetimeApproved[k.id] || 0) + ledger.filter((l) => l.kid === k.id && l.kind === 'grant').reduce((s, l) => s + l.stars, 0);
     const spent = ledger.filter((l) => l.kid === k.id && (l.kind === 'wardrobe' || l.kind === 'reward')).reduce((s, l) => s + l.stars, 0);
     const ward = await getSetting(env, 'wardrobe:' + k.id, { owned: [], look: {} });
@@ -129,9 +132,25 @@ async function board(env, cfg, req, url) {
       quiz: quizState(cfg, k, quizRuns.filter((q) => q.kid === k.id), wk),
       rewardRequests: rewardReqs.filter((r) => r.kid === k.id), pendingClaims: claims.filter((c) => c.kid === k.id && c.status === 'pending'), weekClaims: claims.filter((c) => c.kid === k.id && c.date >= wk) });
   }
+  if (live && newBar) await setSetting(env, 'weekbar', { week: wk, kids: bars });
   const turnText = instToday.filter((i) => i.turn).map((i) => `${cfg.kids.find((k) => k.id === i.kids[0])?.name} has ${i.title.toLowerCase()} today`).join('. ');
   return { version: env.CF_VERSION_METADATA?.id || 'dev', stage: env.STAGE || '', now: now.toISOString(), today, zone, weekStart: wk, calWeekStart, payDay: addDaysYmd(wk, 6), isSchoolDay: P.isSchoolDay(today, cfg), tomorrowSchool: P.isSchoolDay(addDaysYmd(today, 1), cfg),
     config: publicConfig(cfg), weather, tip, events: evs.events, rewardRequests: rewardReqs, photoIds, calendarStatus: evs.status, sampleData: evs.sample, kids, todos, claims, groceries, meals, notes, turnText, recent: logs, instancesToday: instToday };
+}
+
+// Each day's chore list is saved while the day is on, so once it's over the board scores it from what was
+// asked that day, not from the chores as they are later. Days this week from before lists were saved get
+// today's chores once, so they stop moving from now on. Only a live board saves (not a look at another date).
+async function dayPlans(env, cfg, today, wk, todos, save, instToday) {
+  const rows = await env.DB.prepare('SELECT date, plan FROM day_plans WHERE date>=? AND household_id=?').bind(addDaysYmd(today, -100), env.HID).all().then((r) => r.results).catch(() => null);
+  if (!rows) return {}; // the table isn't there yet (migrations not applied): score from the chores as they are
+  const plans = {}; for (const r of rows) { try { plans[r.date] = JSON.parse(r.plan); } catch {} }
+  if (!save) return plans;
+  const put = (d, inst) => env.DB.prepare('INSERT INTO day_plans(household_id,date,plan,updated_at) VALUES(?,?,?,?) ON CONFLICT(household_id,date) DO UPDATE SET plan=excluded.plan, updated_at=excluded.updated_at').bind(env.HID, d, JSON.stringify(inst), nowIso()).run().catch(() => {});
+  const writes = [];
+  if (JSON.stringify(plans[today]) !== JSON.stringify(instToday)) { plans[today] = instToday; writes.push(put(today, instToday)); }
+  for (let d = wk; d < today; d = addDaysYmd(d, 1)) if (!plans[d]) { plans[d] = P.instancesForDay(d, cfg, todos); writes.push(put(d, plans[d])); }
+  await Promise.all(writes); return plans;
 }
 
 // ---------- mutations ----------
