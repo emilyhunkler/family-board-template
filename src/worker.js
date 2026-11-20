@@ -10,6 +10,7 @@ import * as O from './lib/onboard.js';
 import * as AC from './lib/account.js';
 import * as BK from './lib/bank.js';
 import * as APP from './lib/app.js';
+import * as ID from './lib/ideas.js';
 
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
 const err = (msg, status = 400, extra = {}) => json({ error: msg, ...extra }, status);
@@ -151,12 +152,13 @@ async function board(env, cfg, req, url) {
   // Kids' bank: money in and out, cash asked for, weeks already paid, and saved pay day totals.
   const bankOn = cfg.bank?.on !== false; const payDayYmd = addDaysYmd(wk, 6);
   const closed = BK.payDayClosed(today, payDayYmd, parts(now, zone), cfg.week?.closesAt, live);
-  const [moneyRows, payouts, cashReqs, snaps] = await Promise.all([
+  const [moneyRows, payouts, cashReqs, snaps, ideaRow] = await Promise.all([
     env.DB.prepare("SELECT kid, kind, amount, note, created_at FROM ledger WHERE kind IN ('jar','cashout') AND household_id=? ORDER BY id DESC LIMIT 300").bind(env.HID).all().then((r) => r.results),
     env.DB.prepare("SELECT kid, week FROM ledger WHERE kind='payout' AND week>=? AND household_id=?").bind(addDaysYmd(wk, -7 * (BK.KEEP_WEEKS + 1)), env.HID).all().then((r) => r.results),
     // Before the bank's table exists (its migration not applied yet), there are just no cash requests.
     (async () => (await env.DB.prepare("SELECT * FROM cash_requests WHERE (status='pending' OR requested_at>?) AND household_id=? ORDER BY id DESC").bind(new Date(Date.now() - 14 * 86400000).toISOString(), env.HID).all()).results)().catch(() => []),
     getSetting(env, 'paychecks', {}),
+    getSetting(env, 'idea', null),
   ]);
   const kids = [];
   for (const k of cfg.kids) {
@@ -178,7 +180,7 @@ async function board(env, cfg, req, url) {
     if (JSON.stringify(snaps?.[wk]?.kids) !== JSON.stringify(cur)) await setSetting(env, 'paychecks', BK.withSnapshot(snaps, wk, cur, nowIso())); }
   const turnText = instToday.filter((i) => i.turn).map((i) => `${cfg.kids.find((k) => k.id === i.kids[0])?.name} has ${i.title.toLowerCase()} today`).join('. ');
   return { version: env.CF_VERSION_METADATA?.id || 'dev', stage: env.STAGE || '', now: now.toISOString(), today, zone, weekStart: wk, calWeekStart, payDay: payDayYmd, payDayClosed: closed, isSchoolDay: P.isSchoolDay(today, cfg), tomorrowSchool: P.isSchoolDay(addDaysYmd(today, 1), cfg),
-    config: publicConfig(cfg), weather, tip, events: evs.events, rewardRequests: rewardReqs, photoIds, calendarStatus: evs.status, sampleData: evs.sample, kids, todos, claims, groceries, meals, notes, turnText, recent: logs, instancesToday: instToday };
+    config: publicConfig(cfg), idea: ID.ideaState(ideaRow, today), weather, tip, events: evs.events, rewardRequests: rewardReqs, photoIds, calendarStatus: evs.status, sampleData: evs.sample, kids, todos, claims, groceries, meals, notes, turnText, recent: logs, instancesToday: instToday };
 }
 
 // Each day's chore list is saved while the day is on, so once it's over the board scores it from what was
@@ -286,6 +288,21 @@ async function claimQuest(env, cfg, kid, questId, title, stars, today) {
   await log(env, 'quest', kid, `${cfg.kids.find((k) => k.id === kid)?.name} claimed ${t}`);
   if (status === 'pending') await notify(env, 'quest', `${cfg.kids.find((k) => k.id === kid)?.name} claimed a quest`, `${t} · ★ ${s}. Tap to approve.`);
   return json({ ok: true, status });
+}
+// The family idea of the day: "Another idea" moves every screen on to the next one; "We did it!" is once a day,
+// and gives each kid the stars grown-ups chose (none unless they pick some), approved like a bonus quest.
+async function ideaAction(env, cfg, body, today) {
+  if (cfg.ideas?.on === false) return err('The family idea of the day is off', 409);
+  const r = ID.ideaStep(ID.ideaState(await getSetting(env, 'idea', null), today), body, nowIso()); if (r.error) return err(r.error, 409);
+  await setSetting(env, 'idea', r.state);
+  const stars = Math.max(0, Math.min(10, P.num(cfg.ideas?.stars, 0))); let status = null;
+  if (r.fresh) {
+    await log(env, 'idea', null, `Family idea done: ${r.state.done.text}`);
+    if (stars > 0) { status = cfg.rules.questsNeedApproval ? 'pending' : 'approved'; const title = `Family idea: ${r.state.done.text}`.slice(0, 120);
+      for (const k of cfg.kids) await env.DB.prepare('INSERT INTO quest_claims(date,kid,quest,title,stars,status,claimed_at,decided_at,household_id) VALUES(?,?,?,?,?,?,?,?,?)').bind(today, k.id, null, title, stars, status, nowIso(), status === 'approved' ? nowIso() : null, env.HID).run();
+      if (status === 'pending') await notify(env, 'quest', 'The family did today’s idea', `${r.state.done.text} · ★ ${stars} each. Tap to approve.`); }
+  }
+  return json({ ok: true, idea: r.state, stars: r.fresh ? stars : 0, status });
 }
 async function execVoice(env, cfg, res, body, req, snapshot) {
   const today = snapshot.today; const p = res.params || {};
@@ -710,6 +727,7 @@ export default {
       if (path === '/api/todo' && method === 'POST') { if (!body.title) return err('title required'); await env.DB.prepare('INSERT INTO todos(date,kid,title,stars,created_at,household_id) VALUES(?,?,?,?,?,?)').bind(body.date || today, body.kid || null, body.title, P.num(body.stars, 1), nowIso(), env.HID).run(); return json({ ok: true }); }
       if (path.startsWith('/api/todo/') && method === 'DELETE') { if (!admin()) return denyAdmin(req); await env.DB.prepare('DELETE FROM todos WHERE id=? AND household_id=?').bind(+path.split('/')[3], env.HID).run(); return json({ ok: true }); }
       if (path === '/api/quest/claim' && method === 'POST') return claimQuest(env, cfg, body.kid, body.questId, body.title, body.stars, today);
+      if (path === '/api/idea' && method === 'POST') return ideaAction(env, cfg, body, today);
       if (path === '/api/quiz/finish' && method === 'POST') return finishQuiz(env, cfg, body, today);
       if (path === '/api/quest/decide' && method === 'POST') { if (!admin()) return denyAdmin(req); await env.DB.prepare('UPDATE quest_claims SET status=?, decided_at=? WHERE id=? AND household_id=?').bind(body.approve ? 'approved' : 'denied', nowIso(), body.id, env.HID).run(); return json({ ok: true }); }
       if (path === '/api/kids-done' && method === 'POST') { const turn = cfg.setup?.kidsTurn; if (Array.isArray(turn) && turn.includes(body.kid)) { cfg.setup.kidsTurn = turn.filter((x) => x !== body.kid); await saveConfig(env, cfg); } return json({ ok: true }); }

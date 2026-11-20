@@ -78,6 +78,11 @@ export default {
   week: { startsOn: 1, closesAt: '18:00', payDay: 5 },
   // Kids' bank: on pay day each kid picks cash or the bank, and can ask for cash from the bank any time.
   bank: { on: true },
+  // Off-screen time. ideas: the mascot's family idea of the day (stars: given to each kid for "We did it!", 0 = just a cheer;
+  // own: the family's own ideas, [{ id, emoji, text, out }]). nudge: after `minutes` of tapping with nothing done, the
+  // kitchen screen says "Go play!" and rests for `quiet` minutes. Chores, pay day and grown-up settings always stay open.
+  ideas: { on: true, stars: 0, builtIn: true, own: [] },
+  nudge: { on: true, minutes: 5, quiet: 15 },
   school: { days: [1, 2, 3, 4, 5], daysOff: [], extraDays: [] },
   kids: [
     { id: 'kid1', name: 'Alex', color: '#ff7a90', age: 10, leaveTime: '07:45', weeklyAllowance: 5, morningStart: '06:30',

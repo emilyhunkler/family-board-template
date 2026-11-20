@@ -249,4 +249,13 @@ html.dark .appglyph{background:#1b222d}
 html.dark .appnudge{background:#1b222d}
 html.dark .appnudge b{color:#d6e4f7}
 html.dark .par .top .appbtn{background:var(--sun)}
+html.dark .guide{background:linear-gradient(135deg,#332f1b,#3c351f);border:3px solid #54492b}
+html.dark .gmas b{color:#d6e4f7}
+html.dark .gph{color:#eadcaa}
+html.dark .gstep{background:#1b222d}
+html.dark .gstep .gn{background:var(--sun)}
+html.dark .gstep .gt b{color:#d6e4f7}
+html.dark .goplay{background:linear-gradient(160deg,#1e3a26,#3e3720 60%,#1d2c38)}
+html.dark .gpcard h2{color:#d6e4f7}
+html.dark .gpkids button{border:3px solid var(--kc,#274932)}
 html.dark body{background:linear-gradient(160deg,#111a26 0%,#13201d 55%,#121a2b 100%)}
