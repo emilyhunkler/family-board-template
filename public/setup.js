@@ -6,9 +6,8 @@ import { html, api, put, toast, chime, confetti, andList } from './app.js';
 
 const COLORS = ['#ff7a90', '#5aa9ff', '#ffc857', '#7fd6b0', '#c3a6ff', '#ff9f5a', '#4cc9c0', '#f28ad8'];
 const WEEKDAYS = [1, 2, 3, 4, 5]; const EVERY = [0, 1, 2, 3, 4, 5, 6];
-// Real pets get pet chores; characters are just for fun.
-export const PETS = [['dog', '🐶', 'Dog'], ['cat', '🐱', 'Cat'], ['bunny', '🐰', 'Bunny'], ['fish', '🐠', 'Fish'], ['bird', '🐦', 'Bird'], ['hamster', '🐹', 'Hamster'], ['turtle', '🐢', 'Turtle'], ['lizard', '🦎', 'Lizard'], ['horse', '🐴', 'Horse']];
-export const CHARACTERS = [['owl', '🦉', 'Owl', 'Hoot'], ['fox', '🦊', 'Fox', 'Rusty'], ['dragon', '🐉', 'Dragon', 'Ember'], ['robot', '🤖', 'Robot', 'Bolt'], ['unicorn', '🦄', 'Unicorn', 'Sparkle'], ['penguin', '🐧', 'Penguin', 'Waddles'], ['sun', '🌞', 'Sunshine', 'Sunny']];
+import { PETS, CHARACTERS } from './sidekicks.js';
+export { PETS, CHARACTERS };
 const sideEmoji = (kind) => [...PETS, ...CHARACTERS].find((x) => x[0] === kind)?.[1] || '';
 const isPet = (kind) => PETS.some((x) => x[0] === kind);
 // A few chores to start with. Families add their own.

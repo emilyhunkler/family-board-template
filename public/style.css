@@ -219,9 +219,14 @@ h1,h2,h3,h4{font-family:var(--head);margin:0;line-height:1.1}
 .ptabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px;padding-bottom:12px;border-bottom:2px solid var(--line)}
 .ptabs button{padding:8px 15px;border-radius:999px;font-weight:800;font-size:14px;background:var(--soft);color:#3b4a66;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 .ptabs button.on{background:var(--navy);color:#fff}.ptabs .cnt{background:var(--coral);color:#fff;font-size:11px;padding:1px 7px;border-radius:999px;font-weight:900}
-.help{margin:2px 0 8px;font-size:13px;font-weight:700;color:#3b4a66}.help summary{cursor:pointer;font-weight:900;font-size:13px;color:var(--muted);display:inline-block;padding:2px 0}
-.help>div{background:var(--soft);border-radius:12px;padding:8px 12px;margin-top:4px;line-height:1.4}
-.more{margin-top:14px}.more summary{cursor:pointer;font-family:var(--head);font-weight:800;font-size:15px;color:var(--muted);padding:2px 0}
+.help{margin:4px 0 10px;font-size:13px;font-weight:700;color:#3b4a66}
+.help summary,.more summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:6px}.help summary::-webkit-details-marker,.more summary::-webkit-details-marker{display:none}
+.help summary{font-weight:900;font-size:13px;color:#3b4a66;background:var(--soft);border-radius:999px;padding:5px 12px 5px 6px}
+.help summary .i{width:18px;height:18px;border-radius:50%;background:var(--navy);color:#fff;font-size:12px;font-style:italic;font-family:Georgia,serif;display:inline-flex;align-items:center;justify-content:center}
+.help summary::after,.more summary::after{content:'▸';font-size:12px;transition:transform .15s}.help[open] summary::after,.more[open] summary::after{transform:rotate(90deg)}
+.help>div{background:var(--soft);border-radius:12px;padding:8px 12px;margin-top:6px;line-height:1.4}
+.pnote{font-size:13px;font-weight:700;color:#3b4a66;margin:2px 0 6px;line-height:1.4}
+.more{margin-top:14px}.more summary{font-family:var(--head);font-weight:800;font-size:15px;color:var(--muted);padding:2px 0}
 .pmain{padding:16px 20px;min-width:0;overflow:auto}.pmain h3{font-size:24px;margin-bottom:8px}.sub{font-family:var(--head);font-weight:800;font-size:15px;color:var(--muted);margin:12px 0 4px}
 .trow{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:14px;background:var(--soft);margin-top:5px;font-weight:800;font-size:14px;flex-wrap:wrap}
 .trow .em{font-size:20px;width:30px;text-align:center}.trow input.nm{flex:1;min-width:140px;background:#fff;border:0;border-radius:10px;padding:6px 10px;font-weight:800}

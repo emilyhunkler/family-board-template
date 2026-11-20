@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'https://cdn.jsdelivr.net/npm/preact
 import htm from 'https://cdn.jsdelivr.net/npm/htm@3.1.1/+esm';
 import { api, put, del, toast, chime, Avatar, addDays, fromYmd } from './app.js';
 import { rankVoices, bestVoice, cloudSpeak, primeSpeech } from './voice.js';
+import { PETS, CHARACTERS } from './sidekicks.js';
 const html = htm.bind(h);
 const dayName = (ymd) => { const d = fromYmd(ymd); return d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }); };
 const DL = ['M', 'T', 'W', 'T', 'F', 'S', 'S']; const DI = [1, 2, 3, 4, 5, 6, 0];
@@ -41,7 +42,7 @@ export function Parents({ b, refresh, pinApi, onClose, start }) {
 }
 const Tog = ({ on, set }) => html`<button class=${'tog' + (on ? ' on' : '')} onClick=${() => set(!on)}></button>`;
 // Longer explanations stay one tap away, so each page shows its settings first.
-const Help = ({ children, label = 'How this works' }) => html`<details class="help"><summary>${label}</summary><div>${children}</div></details>`;
+const Help = ({ children, label = 'How this works' }) => html`<details class="help"><summary><span class="i">i</span>${label}</summary><div>${children}</div></details>`;
 const F = ({ label, children }) => html`<div class="frow"><label>${label}</label>${children}</div>`;
 const Who = ({ v, set, kids, extra = true }) => html`<div class="who">${kids.map((k) => html`<button class=${v === k.id ? 'on' : ''} style=${v === k.id ? { background: k.color } : {}} onClick=${() => set(k.id)}>${k.name.length > 7 ? k.name.slice(0, 6) + '…' : k.name}</button>`)}${extra ? html`<button class=${v === 'both' ? 'on' : ''} onClick=${() => set('both')}>Both</button><button class=${v === 'either' ? 'on' : ''} onClick=${() => set('either')}>Either</button>` : ''}</div>`;
 const Step = ({ v, set, min = 0, max = 10, star = true }) => html`<span class="step"><button onClick=${() => set(Math.max(min, v - 1))}>−</button>${star ? '★ ' : ''}${v}<button onClick=${() => set(Math.min(max, v + 1))}>+</button></span>`;
@@ -295,11 +296,14 @@ function Voice({ cfg, update }) {
 }
 // Who's in the family: names, colors and ages, and the words that give a calendar event someone's color.
 function Family({ cfg, update }) {
-  return html`<h3>Family and kids</h3><${F} label="Family name"><input type="text" value=${cfg.family.name} onInput=${(e) => update((c) => c.family.name = e.target.value)} /></${F}><${F} label="Dog"><input type="text" value=${cfg.family.dog} onInput=${(e) => update((c) => c.family.dog = e.target.value)} /></${F}><${F} label="Time zone"><input type="text" value=${cfg.zone} onInput=${(e) => update((c) => c.zone = e.target.value)} /></${F}>
+  // Older boards saved only a name, which meant a dog. Picking "None" clears the name too, so nothing talks about a pet.
+  const kind = cfg.family.petKind ?? (cfg.family.dog ? 'dog' : '');
+  const pickKind = (k) => update((c) => { const wasChar = CHARACTERS.find((x) => x[0] === c.family.petKind && x[3] === c.family.dog); const ch = CHARACTERS.find((x) => x[0] === k); c.family.petKind = k; if (!k) c.family.dog = ''; else if (ch && (!c.family.dog || wasChar)) c.family.dog = ch[3]; else if (!ch && wasChar) c.family.dog = ''; });
+  return html`<h3>Family and kids</h3><${F} label="Family name"><input type="text" value=${cfg.family.name} onInput=${(e) => update((c) => c.family.name = e.target.value)} /></${F}><${F} label="Pet or sidekick"><select value=${kind} onChange=${(e) => pickKind(e.target.value)}><option value="">None</option><optgroup label="Our pet">${PETS.map(([k, e, l]) => html`<option value=${k}>${e} ${l}</option>`)}</optgroup><optgroup label="A character">${CHARACTERS.map(([k, e, l]) => html`<option value=${k}>${e} ${l}</option>`)}</optgroup></select>${kind ? html`<input type="text" placeholder="Their name" value=${cfg.family.dog} onInput=${(e) => update((c) => c.family.dog = e.target.value)} />` : ''}</${F}><${F} label="Time zone"><input type="text" value=${cfg.zone} onInput=${(e) => update((c) => c.zone = e.target.value)} /></${F}>
     <div class="sub">Kids</div>${cfg.kids.map((k, i) => html`<div class="trow"><input type="color" title="Color" value=${k.color} onInput=${(e) => update((c) => c.kids[i].color = e.target.value)} style="width:34px;height:34px;border:0;background:none" /><input class="nm" style="flex:0 1 160px" value=${k.name} onInput=${(e) => update((c) => c.kids[i].name = e.target.value)} /><label style="font-size:13px">age <input type="number" style="width:56px;border:0;border-radius:8px;padding:6px" value=${k.age} onInput=${(e) => update((c) => c.kids[i].age = +e.target.value)} /></label></div>`)}
     <div class="sub">Grown-ups</div>${cfg.family.parents.map((p, i) => html`<div class="trow"><input type="color" title="Color" value=${p.color} onInput=${(e) => update((c) => c.family.parents[i].color = e.target.value)} style="width:34px;height:34px;border:0;background:none" /><input class="nm" style="flex:0 1 160px" value=${p.name} onInput=${(e) => update((c) => c.family.parents[i].name = e.target.value)} /></div>`)}
-    <div class="sub">Who is each event for?</div><${Help} label="How event colors work">The board reads event titles. A person's name, or any of their words below as a whole word, gives the event their color. Words like "the kids" mean all the kids. Anything else shows as Family.</${Help}>
-    ${[...cfg.kids.map((k, i) => [k.name, k.match, (v) => update((c) => c.kids[i].match = v), 'e.g. violin, strings']), ...cfg.family.parents.map((p, i) => [p.name, p.match, (v) => update((c) => c.family.parents[i].match = v), 'e.g. yoga, book club'])].map(([name, match, set, ph]) => html`<${F} label=${name}><input type="text" placeholder=${ph} value=${(match || []).join(', ')} onInput=${(e) => set(e.target.value.split(',').map((x) => x.trim()).filter(Boolean))} /></${F}>`)}`;
+    <div class="sub">Calendar color words</div><p class="pnote">An event shows in someone's color when its title has their name or one of their words. For example, add "violin" for ${cfg.kids[0]?.name || 'a kid'}, and "Violin lesson" shows in ${cfg.kids[0]?.name || 'their'}'s color. Events with "the kids" go to all the kids. Anything else shows as Family.</p>
+    ${[...cfg.kids.map((k, i) => [k.name, k.match, (v) => update((c) => c.kids[i].match = v), 'words like violin, swim']), ...cfg.family.parents.map((p, i) => [p.name, p.match, (v) => update((c) => c.family.parents[i].match = v), 'words like yoga, book club'])].map(([name, match, set, ph]) => html`<${F} label=${name}><input type="text" placeholder=${ph} value=${(match || []).join(', ')} onInput=${(e) => set(e.target.value.split(',').map((x) => x.trim()).filter(Boolean))} /></${F}>`)}`;
 }
 // How the kitchen screen looks and behaves through the day.
 function Screen({ cfg, update, b }) {
