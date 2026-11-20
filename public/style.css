@@ -525,3 +525,4 @@ button.gsrow{width:100%;background:none;text-align:left;border-radius:12px}butto
 .wkit{display:flex;align-items:center;gap:8px;padding:4px 0;font-weight:800;font-size:14px}.wkit .mk{width:22px;text-align:center;font-weight:900}.wkit .tt{flex:1;min-width:0}.wkit small{font-size:11px;font-weight:900;color:var(--muted)}
 .wkit.got .mk{color:#2f8f5b}.wkit.miss .mk{color:#c0573f}.wkit.miss .tt{color:var(--muted)}.wkit.open .mk{color:var(--sky)}.wkit.held .mk{color:var(--sun)}
 .wkmoney{margin-top:8px;font-size:13px;font-weight:800;color:var(--muted)}.wkmoney b{color:var(--navy);font-size:16px}
+.banner.stage{background:#e3ecff;color:#1f3a5f;text-align:center}

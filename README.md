@@ -58,6 +58,11 @@ A few more optional settings for a shared site:
 
 Every family can download all its data or delete its board from `/account`.
 
+## Making changes safely
+
+If families use your board every day, try changes on a separate test copy first and go live at the week's
+end. RELEASING.md has the steps, and CHANGELOG.md lists what changed.
+
 ## Costs
 
 It fits in Cloudflare's free plan for a family. The natural-sounding voice uses Workers AI, which has a free daily allowance.

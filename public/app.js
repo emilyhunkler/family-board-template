@@ -694,6 +694,7 @@ function App() {
       <button class="clock" onClick=${() => setPage(homePage)}>${fmtClock(now)}</button>
       <div class="right"><${WxPill} b=${b} onClick=${() => setWx(true)} />${display ? html`<button class="iconbtn" title="Send to phones" onClick=${() => setSend(true)}>📲<i>Send</i></button>` : ''}<button class="iconbtn" title="Ideas and feedback" onClick=${() => setFb(true)}>💬<i>Ideas</i></button>${display ? html`<button class="iconbtn" title="Screensaver" onClick=${(e) => { e.stopPropagation(); setTimeout(() => { idleRef.current = Date.now(); setAmbient(true); }, 50); }}>🌙<i>Sleep</i></button>` : ''}<button class="iconbtn" title="Grown-ups" onClick=${() => setParents(true)}>⚙️<i>Grown-ups</i></button></div></div>
     ${update ? html`<div class="updatebar"><span>✨ A new version of the board is ready.</span><button class="pill sm" onClick=${() => location.reload()}>Refresh now</button><button class="pill sm lite" onClick=${() => setUpdate(false)}>Later</button></div>` : ''}
+    ${b.stage ? html`<div class="banner stage">🧪 Test copy (${b.stage}). Nothing here touches real families.</div>` : ''}
     <div class="pages" ref=${pagesRef} onScroll=${onScroll}>
       ${pageList.map((p) => { const k = b.kids.find((x) => x.id === p);
         if (k) return html`<${KidPage} key=${k.id} b=${b} k=${k} refresh=${refresh} setPage=${setPage} startTimer=${startTimer} withPin=${pinApi.withPin} />`;
