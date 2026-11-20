@@ -258,6 +258,8 @@ table.t{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}table.
 .ov{padding-top:max(20px,env(safe-area-inset-top))}
 .ambient{padding-top:max(44px,calc(env(safe-area-inset-top) + 24px))}
 @media (max-width:900px){.ambient{padding-top:max(30px,calc(env(safe-area-inset-top) + 16px))}}
+/* The photo screensaver sets its own tighter padding, so give it the same room under the status bar. */
+.ambient.photos,.ambient.photos.withweek{padding-top:max(28px,calc(env(safe-area-inset-top) + 18px))}
 
 /* Week time grid: hours down the left, a column per day, events placed by time. */
 .tg{background:#fff;border-radius:22px;padding:10px 10px 8px;box-shadow:0 2px 0 rgba(31,42,68,.06)}
@@ -391,6 +393,8 @@ table.t{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}table.
   .navbar button{display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:999px;font-weight:900;font-size:14px;color:var(--muted);white-space:nowrap}.navbar button span{font-size:18px}.navbar button.on{background:var(--navy);color:#fff}
   .page{padding-bottom:90px}}
 .navbar .av{flex:none}
+/* In the little tab-bar avatars, show just the kid: a pet sticker that small would read as the kid. */
+.navbar .av .avb{display:none}
 /* No-pet mascot: a big friendly sun, not a dot. */
 .mascot-emoji{font-size:44px}
 /* Parents menu groups */
@@ -469,7 +473,7 @@ button.bubble{display:block;text-align:left;font:inherit;font-weight:800;color:i
 .zoomface{width:78px;height:78px;border-radius:50%;overflow:hidden;position:relative}.zoomface svg{position:absolute;width:190%!important;height:190%!important;max-width:none;left:-45%;top:-38%}.zoomface.low svg{top:-62%}
 .hairpick{display:grid;grid-template-columns:repeat(auto-fill,minmax(58px,1fr));gap:6px;margin-top:6px;max-height:260px;overflow-y:auto;padding:2px}
 .hairpick button{aspect-ratio:1;border-radius:14px;background:var(--soft);border:3px solid transparent;padding:0;overflow:hidden}.hairpick button.on{border-color:var(--navy)}.hairpick button div{width:100%;height:100%}
-.avb{position:absolute;font-size:24cqw;line-height:1;filter:drop-shadow(0 1px 1px rgba(0,0,0,.25));pointer-events:none}
+.av .avb{position:absolute;font-size:24cqw;line-height:1;filter:drop-shadow(0 1px 1px rgba(0,0,0,.25));pointer-events:none}
 /* ---------- setup, redesigned: a family gathering on stage, little celebrations ---------- */
 .wiz{background:radial-gradient(circle at 15% 10%,#fff3c4 0,transparent 35%),radial-gradient(circle at 90% 20%,#ffe0e6 0,transparent 35%),radial-gradient(circle at 50% 100%,#e6f4ff 0,transparent 45%),linear-gradient(160deg,#eaf7ee,#d9f0e2)}
 .wizprog{display:flex;align-items:center;gap:10px;font-size:12px;font-weight:900;color:var(--muted)}.wizprog i{flex:1;height:8px;border-radius:99px;background:var(--soft);overflow:hidden}.wizprog b{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,var(--sun),var(--coral));transition:width .5s cubic-bezier(.3,1.4,.6,1)}

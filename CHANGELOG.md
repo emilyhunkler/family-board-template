@@ -6,7 +6,11 @@ date when it goes live (see RELEASING.md).
 
 ## Unreleased
 
+## 2026-11-20
+
 ### For families
+- The bottom tab bar shows each kid as their own avatar again. A pet sticker on a kid's avatar was showing so big there that it covered the kid's face.
+- The photo screensaver no longer runs under the iPad's clock, Wi-Fi and battery at the top of the screen when the board is installed on the home screen.
 - On the kitchen screen, "Send list" on the Groceries page now sends the list straight to the grown-ups' phones, so nobody gets asked to sign in to WhatsApp or email on the shared tablet. Pick Everyone or one grown-up. If no phone is set up yet, it says how: on each phone, open the board and tap Turn on notifications. On phones, Send list still opens WhatsApp, Messages, email and the rest.
 - The board's pet or sidekick is now the family's guide. It sits big near the top of the home screen with something to say, and shows today's plan: "Jobs first" with how each kid is doing, then "Then family time" with one off-screen idea. With None picked, the board shows the plan without any pet talk.
 - A family idea of the day: one thing to do together away from the screen, like a walk, a card game, music practice, calling Grandma or baking. It fits the season, the weather (no bike rides in the rain, snowmen only when it snows) and the day (bigger outings on weekends). "We did it! 🎉" marks it done for the day and "Another idea" swaps it. Every screen in the house shows the same idea. Grown-ups can add their own ideas, use only their own, give stars for doing it (none by default, just a cheer), or turn it off, under Family and calendar → Family time.
