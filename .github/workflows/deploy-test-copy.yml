@@ -1,7 +1,6 @@
 # Puts a change on the test copy (the Worker family-board-staging and its own database, family_board_staging).
 # It never touches the live board or families' data. It runs by itself after every merge to main, and anyone
 # with access can run it on any branch from the Actions tab ("Run workflow"), to try a pull request first.
-# Tick "sample_family" on a manual run to fill the test board with a pretend family to look at.
 #
 # Needs three repository secrets (Settings → Secrets and variables → Actions):
 #   CLOUDFLARE_API_TOKEN   a Cloudflare token that can edit Workers and D1 (see RELEASING.md)
@@ -12,11 +11,6 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      sample_family:
-        description: 'Replace the test board with a pretend family (two kids, this week part done)'
-        type: boolean
-        default: false
 permissions:
   contents: read
 concurrency:
@@ -72,12 +66,6 @@ jobs:
           else
             echo "No STAGING_SETUP_CODE secret yet, so the test board keeps the code it has."
           fi
-      - name: Fill the test board with a pretend family
-        # Only ever against the test copy's own database (--env staging). Never the live board.
-        if: steps.ready.outputs.ok == 'true' && inputs.sample_family
-        run: |
-          node scripts/sample-family.mjs > sample-family.sql
-          npx wrangler d1 execute DB --remote --env staging --file sample-family.sql --yes
       - name: Note what went out
         if: steps.ready.outputs.ok == 'true'
         run: |
