@@ -244,4 +244,9 @@ html.dark .bankmore{color:#d6e4f7}
 html.dark .bh.in b{color:#a6e2c1}
 html.dark .bh.out b{color:#e6b19c}
 html.dark .askamt{color:#d6e4f7}
+html.dark .appnum{background:#3b6496}
+html.dark .appglyph{background:#1b222d}
+html.dark .appnudge{background:#1b222d}
+html.dark .appnudge b{color:#d6e4f7}
+html.dark .par .top .appbtn{background:var(--sun)}
 html.dark body{background:linear-gradient(160deg,#111a26 0%,#13201d 55%,#121a2b 100%)}

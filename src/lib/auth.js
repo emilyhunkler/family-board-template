@@ -81,7 +81,9 @@ export function signInPage({ msg = '', ok = '', email = '', name = 'Family Board
   <label class="chk"><input type="checkbox" name="display" value="1"><span>This is our family's kitchen display<small>Stays signed in for the kids. Parents still needs the PIN on this screen.</small></span></label></form>
   <details><summary>Use a password instead</summary>${pw}</details>`;
   const more = `<p class="more"><a href="/auth/pair">Setting up the kitchen screen? Get a pairing code</a>${signup ? '<br><a href="/auth/signup">New here? Create your family\'s board</a>' : ''}<br><a href="/privacy" style="font-weight:600">Privacy</a></p>`;
-  return page('Sign in', `<h1>${escHtml(name)}</h1><p>${google ? 'Sign in with your Google account. Each device stays signed in.' : 'Sign in with your parent account. Each device stays signed in.'}</p>${msg ? `<p class="e">${escHtml(msg)}</p>` : ''}${ok ? `<p class="ok">${escHtml(ok)}</p>` : ''}${google ? g : pw}${more}`, msg ? 401 : 200);
+  // Opened from the app's icon on the home screen: say so, so it doesn't look like something went wrong.
+  const inApp = `<p class="ok" id="inapp" hidden>Welcome to the app! Sign in once on this device and it stays signed in.</p><script>if (matchMedia('(display-mode: standalone)').matches || navigator.standalone) document.getElementById('inapp').hidden = false;</script>`;
+  return page('Sign in', `<h1>${escHtml(name)}</h1>${inApp}<p>${google ? 'Sign in with your Google account. Each device stays signed in.' : 'Sign in with your parent account. Each device stays signed in.'}</p>${msg ? `<p class="e">${escHtml(msg)}</p>` : ''}${ok ? `<p class="ok">${escHtml(ok)}</p>` : ''}${google ? g : pw}${more}`, msg ? 401 : 200);
 }
 export function invitePage({ token, name, email, msg = '' }) {
   return page('Set your password', `<h1>Welcome, ${escHtml(name)}!</h1><p>Choose a password for <b>${escHtml(email)}</b>. You'll use it to sign in to the family board on your phone.</p>${msg ? `<p class="e">${escHtml(msg)}</p>` : ''}

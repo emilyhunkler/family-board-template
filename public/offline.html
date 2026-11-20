@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f3a5f">
+<title>Family Board</title>
+<style>
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;background:linear-gradient(160deg,#eaf7ee,#d9f0e2 55%,#e6f4ff);font-family:system-ui,-apple-system,sans-serif;color:#1f2a44;text-align:center}
+  .card{background:#fff;border-radius:26px;padding:30px 28px;box-shadow:0 10px 30px rgba(31,90,60,.12);width:min(400px,100%)}
+  img{width:84px;height:84px;border-radius:20px}
+  h1{font-size:26px;color:#1f3a5f;margin:14px 0 6px}
+  p{font-size:17px;font-weight:600;color:#6b7280;line-height:1.4;margin:0 0 18px}
+  button{border:0;border-radius:999px;background:#1f3a5f;color:#fff;font-weight:800;font-size:17px;padding:13px 26px;cursor:pointer}
+  @media (prefers-color-scheme:dark){body{background:#111a26;color:#e6ecf5}.card{background:#1c2433}h1{color:#d6e4f7}p{color:#9aa6b8}button{background:#3b6496}}
+</style>
+</head>
+<body>
+<div class="card">
+  <img src="/icon-192.png" alt="">
+  <h1>No internet right now</h1>
+  <p>The board will be back as soon as the internet is. You don't need to do anything.</p>
+  <button onclick="location.reload()">Try again</button>
+</div>
+<script>
+  // Open the board again by itself once the internet is back.
+  const back = async () => { try { const r = await fetch('/api/health', { cache: 'no-store' }); if (r.ok) location.reload(); } catch {} };
+  addEventListener('online', back); setInterval(back, 15000);
+</script>
+</body>
+</html>

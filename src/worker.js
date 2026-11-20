@@ -9,6 +9,7 @@ import * as A from './lib/auth.js';
 import * as O from './lib/onboard.js';
 import * as AC from './lib/account.js';
 import * as BK from './lib/bank.js';
+import * as APP from './lib/app.js';
 
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
 const err = (msg, status = 400, extra = {}) => json({ error: msg, ...extra }, status);
@@ -467,7 +468,7 @@ async function authRoute(env, req, path, cfg, userCount, session) {
     if (path === '/account/export') {
       const out = { exported_at: nowIso(), site: name, family };
       for (const t of AC.FAMILY_TABLES) {
-        if (['cache', 'invites', 'pairings'].includes(t)) continue;
+        if (['cache', 'invites', 'pairings', 'app_handoffs'].includes(t)) continue;
         const rows = (await env.DB.prepare(`SELECT * FROM ${t} WHERE household_id=?`).bind(env.HID).all()).results;
         out[t] = t === 'users' ? rows.map((u) => ({ email: u.email, name: u.name, person: u.person_id, created_at: u.created_at, last_login: u.last_login }))
           : t === 'sessions' ? rows.map((x) => ({ kind: x.kind, device: x.label, created_at: x.created_at, last_seen: x.last_seen }))
@@ -497,6 +498,15 @@ async function authRoute(env, req, path, cfg, userCount, session) {
     const totals = families.reduce((t, x) => ({ grownups: t.grownups + x.grownups, devices: t.devices + x.devices, photo_bytes: t.photo_bytes + x.photo_bytes }), { grownups: 0, devices: 0, photo_bytes: 0 });
     const feedback = (await env.DB.prepare('SELECT household_id, text, created_at, issue_url FROM feedback /* all-families: feedback sent to the owner */ ORDER BY id DESC LIMIT 30').all()).results;
     return AC.ownerPage({ site: name, families, totals, feedback, signupOpen: signupCodes(env).length > 0 });
+  }
+  // The new iPhone or iPad app signs in once with the code its Safari page made (see lib/app.js).
+  if (path === '/auth/app/claim' && req.method === 'POST') {
+    const ip = ipOf(req); const wait = await A.check(env, 'appclaim:' + ip, 20); if (wait) return json({ error: 'Too many tries' }, 429);
+    const t = (await req.json().catch(() => ({}))).t; const row = await APP.takeHandoff(env, req, t).catch(() => null);
+    if (!row) { await A.fail(env, 'appclaim:' + ip, 60 * 60); return json({ error: 'That code has run out' }, 410); }
+    if (row.kind === 'gate') { const g = await getGate({ ...env, HID: 1 }); return withCookies(json({ ok: true }), `fb=${g.hash}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax; Secure`); }
+    const kind = row.kind === 'display' ? 'display' : 'parent'; const token = await A.createSession(env, { userId: row.user_id, householdId: row.household_id, kind, label: (kind === 'display' ? 'Kitchen display · ' : '') + A.deviceLabel(req) + ' · app' });
+    return withCookies(json({ ok: true }), A.sessionCookie(token, kind));
   }
   if (path === '/auth/signout') { const tok = cookieOf(req, 'fbs'); if (tok && /^[0-9a-f]{64}$/.test(tok)) await env.DB.prepare('DELETE FROM sessions /* all-families: by secret token */ WHERE id=?').bind(await A.sha256hex(tok)).run(); return redirect('/', A.clearCookie()); }
   return null;
@@ -571,21 +581,33 @@ export default {
       if (code && (A.sameString(await sha('fb:' + code), g.hash) || (env.SETUP_CODE && A.sameString(code, String(env.SETUP_CODE).trim())))) { await A.clearLimit(env, 'code:' + ip); return redirect('/', `fb=${g.hash}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax; Secure`); }
       await A.fail(env, 'code:' + ip, 60 * 60); return A.legacyCodePage('That code is not right.', !!env.SETUP_CODE);
     }
-    const openPaths = ['/icon.svg', '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png', '/apple-touch-icon-precomposed.png', '/manifest.webmanifest', '/api/health'];
+    if (path === '/manifest.webmanifest') return APP.manifestResponse(env, url.searchParams.get('app'), url.origin);
+    const openPaths = ['/icon.svg', '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png', '/apple-touch-icon-precomposed.png', '/api/health', '/sw.js', '/offline'];
+    const appCode = path === '/' && APP.tokenOk(url.searchParams.get('app')) ? url.searchParams.get('app') : null;
     // LOCAL_DEV is only ever set by `wrangler dev` (see .claude/launch.json): with custom-domain routes, dev requests carry the real domain as their host.
     const local = url.hostname.startsWith('localhost') || url.hostname === '127.0.0.1' || env.LOCAL_DEV === '1';
     if (!openPaths.includes(path)) {
-      if (userCount) { if (!session) return path.startsWith('/api/') ? json({ error: 'sign in', needLogin: true }, 401) : A.signInPage({ name: siteName(env, await getConfig(env)), google: A.googleOn(env), signup: signupCodes(env).length > 0 }); }
-      else if (!local) { const g = await getGate(env); if (cookieOf(req, 'fb') !== g.hash) return path.startsWith('/api/') ? json({ error: 'sign in', needLogin: true }, 401) : A.legacyCodePage('', !!env.SETUP_CODE); }
+      if (userCount) { if (!session && appCode) return APP.openingPage(appCode, siteName(env, {})); if (!session) return path.startsWith('/api/') ? json({ error: 'sign in', needLogin: true }, 401) : A.signInPage({ name: siteName(env, await getConfig(env)), google: A.googleOn(env), signup: signupCodes(env).length > 0 }); }
+      else if (!local) { const g = await getGate(env); if (cookieOf(req, 'fb') !== g.hash && appCode) return APP.openingPage(appCode, siteName(env, {})); if (cookieOf(req, 'fb') !== g.hash) return path.startsWith('/api/') ? json({ error: 'sign in', needLogin: true }, 401) : A.legacyCodePage('', !!env.SETUP_CODE); }
     }
-    if (!path.startsWith('/api/')) { const r = await env.ASSETS.fetch(req); if (!/\.(js|css|html|webmanifest)$|^\/$/.test(path)) return r; const h = new Headers(r.headers); h.set('cache-control', 'no-cache'); return new Response(r.body, { status: r.status, headers: h }); }
+    if (!path.startsWith('/api/')) { const r = await env.ASSETS.fetch(req); if (!/\.(js|css|html|webmanifest)$|^\/$/.test(path)) return r; const h = new Headers(r.headers); h.set('cache-control', 'no-cache');
+      // On the page an iPhone adds to its home screen, the manifest carries the one-time sign-in code too.
+      if (appCode && r.ok) { h.delete('content-length'); h.delete('etag'); return new Response((await r.text()).replace('href="/manifest.webmanifest"', `href="/manifest.webmanifest?app=${appCode}"`), { status: r.status, headers: h }); }
+      return new Response(r.body, { status: r.status, headers: h }); }
     try {
       const cfg = await getConfig(env); const method = req.method; const body = method === 'GET' ? {} : await req.json().catch(() => ({}));
       const zone = cfg.zone; const today = ymd(new Date(), zone);
       ADMIN.set(req, await decideAdmin(env, req, body, cfg, session, userCount));
       const admin = () => pinOk(req);
-      if (path === '/api/board') return json({ ...(await board(env, cfg, req, url)), start: (session?.kind === 'parent' || local) ? await startProgress(env, cfg) : null, me: session ? { kind: session.kind, name: session.user_name, personId: session.person_id } : null, auth: { enabled: !!userCount, local, google: A.googleOn(env) }, feedbackPublic: !cfg.feedbackUrl && !!env.FEEDBACK_REPO && !!env.GITHUB_TOKEN });
+      if (path === '/api/board') return json({ ...(await board(env, cfg, req, url)), start: (session?.kind === 'parent' || local) ? await startProgress(env, cfg) : null, me: session ? { kind: session.kind, name: session.user_name, personId: session.person_id } : null, auth: { enabled: !!userCount, local, google: A.googleOn(env) }, appName: siteName(env, {}), feedbackPublic: !cfg.feedbackUrl && !!env.FEEDBACK_REPO && !!env.GITHUB_TOKEN });
       if (path === '/api/health') return json({ ok: true, time: nowIso() });
+      // Get the app on an iPhone or iPad: a one-time code so the new app opens signed in to this family.
+      if (path === '/api/app/handoff' && method === 'POST') {
+        if (local && !session) return json({ token: null });
+        const wait = await A.check(env, 'handoff:' + env.HID, 30); if (wait) return json({ token: null }); await A.fail(env, 'handoff:' + env.HID, 60 * 60);
+        try { return json({ token: await APP.makeHandoff(env, req, session) }); } catch { return json({ token: null }); } // works once migrations 0011 and 0012 have run
+      }
+      if (path === '/api/app/status') return json({ installed: await APP.appMade(env, session).catch(() => false) });
       if (path === '/api/version') return json({ version: env.CF_VERSION_METADATA?.id || 'dev' });
       if (path === '/api/reward/request' && method === 'POST') {
         const r = (cfg.rewards || []).find((x) => x.id === body.rewardId); if (!r) return err('no such reward', 404); const k = cfg.kids.find((x) => x.id === body.kid); if (!k) return err('kid', 404);

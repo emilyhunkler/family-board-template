@@ -4,6 +4,7 @@ import htm from 'https://cdn.jsdelivr.net/npm/htm@3.1.1/+esm';
 import { api, put, del, toast, chime, Avatar, addDays, fromYmd } from './app.js';
 import { rankVoices, bestVoice, cloudSpeak, primeSpeech } from './voice.js';
 import { PETS, CHARACTERS } from './sidekicks.js';
+import { AppGuide, inApp } from './install.js';
 const html = htm.bind(h);
 const dayName = (ymd) => { const d = fromYmd(ymd); return d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }); };
 const DL = ['M', 'T', 'W', 'T', 'F', 'S', 'S']; const DI = [1, 2, 3, 4, 5, 6, 0];
@@ -15,7 +16,7 @@ const GROUPS = [['today', '✅', 'Today', 'Today', [['approve', 'To approve'], [
   ['chores', '⭐', 'Chores and stars', 'Chores', [['tasks', 'Daily chores'], ['quests', 'Quests'], ['prize', 'Weekly prize'], ['rewards', 'Rewards'], ['wardrobe', 'Wardrobe']]],
   ['money', '💵', 'Money and pay day', 'Money', [['money', 'Allowance and pay day']]],
   ['family', '🏡', 'Family and calendar', 'Family', [['family', 'Family and kids'], ['calendar', 'Calendar and weather'], ['school', 'School days'], ['places', 'Drive times']]],
-  ['screen', '🖥️', 'Screen and sound', 'Screen', [['screen', 'Kitchen screen'], ['photos', 'Photos'], ['voice', 'Voice'], ['notify', 'Notifications']]],
+  ['screen', '🖥️', 'Screen and sound', 'Screen', [['app', 'Get the app'], ['screen', 'Kitchen screen'], ['photos', 'Photos'], ['voice', 'Voice'], ['notify', 'Notifications']]],
   ['advanced', '🔐', 'Advanced', 'Advanced', [['account', 'Sign-in and devices'], ['security', 'PIN and setup'], ['feedback', 'Ideas and feedback']]]];
 export const SECTIONS = GROUPS.flatMap(([, , , , list]) => list);
 // Older links into this screen still land in the right place.
@@ -26,7 +27,7 @@ export const sectionId = (sec) => { const id = OLD_IDS[sec] || sec; return SECTI
 const cashWaiting = (b) => b.kids.flatMap((k) => (k.bank?.requests || []).filter((r) => r.status === 'pending'));
 const LEDGER_KIND = { payout: 'Pay day', jar: 'Into the bank', cashout: 'Cash from the bank', wardrobe: 'Wardrobe', grant: 'Stars given', reward: 'Reward' };
 
-const SECTION_COMPONENTS = { approve: (p) => Approve(p), account: (p) => Account(p), feedback: (p) => Feedback(p), rewards: (p) => Rewards(p), photos: (p) => Photos(p), notify: (p) => Notify(p), tasks: (p) => Tasks(p), todos: (p) => Todos(p), quests: (p) => Quests(p), prize: (p) => Prize(p), money: (p) => Money(p), meals: (p) => Meals(p), school: (p) => School(p), calendar: (p) => Calendar(p), places: (p) => Places(p), wardrobe: (p) => WardrobeAdmin(p), voice: (p) => Voice(p), family: (p) => Family(p), screen: (p) => Screen(p), security: (p) => Security(p) };
+const SECTION_COMPONENTS = { app: (p) => GetApp(p), approve: (p) => Approve(p), account: (p) => Account(p), feedback: (p) => Feedback(p), rewards: (p) => Rewards(p), photos: (p) => Photos(p), notify: (p) => Notify(p), tasks: (p) => Tasks(p), todos: (p) => Todos(p), quests: (p) => Quests(p), prize: (p) => Prize(p), money: (p) => Money(p), meals: (p) => Meals(p), school: (p) => School(p), calendar: (p) => Calendar(p), places: (p) => Places(p), wardrobe: (p) => WardrobeAdmin(p), voice: (p) => Voice(p), family: (p) => Family(p), screen: (p) => Screen(p), security: (p) => Security(p) };
 export function Parents({ b, refresh, pinApi, onClose, start }) {
   const [cfg, setCfg] = useState(null); const [sec, setSec] = useState(sectionId(start || (b.claims.some((c) => c.status === 'pending') || (b.rewardRequests || []).some((r) => r.status === 'pending') || cashWaiting(b).length ? 'approve' : 'tasks'))); const saveT = useRef(); const [saving, setSaving] = useState('');
   // Each group remembers the page you were last on, so going back to it lands there again.
@@ -36,7 +37,7 @@ export function Parents({ b, refresh, pinApi, onClose, start }) {
   if (!cfg) return html`<div class="par"><div class="top"><div class="d">Parents<small>Enter the PIN to open</small></div><div></div><div class="right"><button class="pill lite" onClick=${onClose}>✕ Close</button></div></div></div>`;
   const pending = [...b.claims.filter((c) => c.status === 'pending'), ...(b.rewardRequests || []).filter((r) => r.status === 'pending'), ...cashWaiting(b)];
   const P = { b, cfg, update, refresh, pin: pinApi.pin, go }; const [grp, , , , pages] = groupOf(sec);
-  return html`<div class="par"><div class="top"><div class="d">Parents<small>${saving || 'Changes save as you go'}</small></div><div></div><div class="right">${b.me?.kind === 'parent' ? '' : html`<button class="pill lite" onClick=${() => { pinApi.setPin(''); onClose(); }}>🔒 Lock</button>`}<button class="pill lite" onClick=${onClose}>✕ Close</button></div></div>
+  return html`<div class="par"><div class="top"><div class="d">Parents<small>${saving || 'Changes save as you go'}</small></div><div></div><div class="right">${inApp() ? '' : html`<button class="pill appbtn" onClick=${() => go('app')}>📲 Get the app</button>`}${b.me?.kind === 'parent' ? '' : html`<button class="pill lite" onClick=${() => { pinApi.setPin(''); onClose(); }}>🔒 Lock</button>`}<button class="pill lite" onClick=${onClose}>✕ Close</button></div></div>
     <div class="parbody"><nav class="card pnav">${GROUPS.map(([gid, ic, lab, short, list]) => html`<button class=${grp === gid ? 'on' : ''} aria-current=${grp === gid ? 'page' : null} onClick=${() => go(lastIn.current[gid] || list[0][0])}><span class="ic">${ic}</span><span class="lg">${lab}</span><span class="sh">${short}</span>${gid === 'today' && pending.length ? html`<span class="cnt">${pending.length}</span>` : ''}</button>`)}</nav>
       <div class="card pmain">${pages.length > 1 ? html`<div class="ptabs">${pages.map(([id, lab]) => html`<button class=${sec === id ? 'on' : ''} onClick=${() => go(id)}>${lab}${id === 'approve' && pending.length ? html`<span class="cnt">${pending.length}</span>` : ''}</button>`)}</div>` : ''}<${SECTION_COMPONENTS[sec]} key=${sec} ...${P} /></div></div></div>`;
 }
@@ -46,6 +47,12 @@ const Help = ({ children, label = 'How this works' }) => html`<details class="he
 const F = ({ label, children }) => html`<div class="frow"><label>${label}</label>${children}</div>`;
 const Who = ({ v, set, kids, extra = true }) => html`<div class="who">${kids.map((k) => html`<button class=${v === k.id ? 'on' : ''} style=${v === k.id ? { background: k.color } : {}} onClick=${() => set(k.id)}>${k.name.length > 7 ? k.name.slice(0, 6) + '…' : k.name}</button>`)}${extra ? html`<button class=${v === 'both' ? 'on' : ''} onClick=${() => set('both')}>Both</button><button class=${v === 'either' ? 'on' : ''} onClick=${() => set('either')}>Either</button>` : ''}</div>`;
 const Step = ({ v, set, min = 0, max = 10, star = true }) => html`<span class="step"><button onClick=${() => set(Math.max(min, v - 1))}>−</button>${star ? '★ ' : ''}${v}<button onClick=${() => set(Math.min(max, v + 1))}>+</button></span>`;
+
+// Get the app: the same picture steps as on the board, for whichever device this is.
+function GetApp({ b }) {
+  return html`<h3>📲 Get the app</h3><${AppGuide} name=${b.appName} />
+    <${Help} label="Other phones and tablets">Open <b>${location.host}</b> on each one, sign in, and tap Get the app. Each phone, tablet and computer shows only its own steps. The kitchen tablet can have the app too, so it opens full screen.</${Help}>`;
+}
 
 function Approve({ b, refresh, pin }) {
   const pending = b.claims.filter((c) => c.status === 'pending'); const recent = b.claims.filter((c) => c.status !== 'pending').slice(0, 12);
@@ -115,7 +122,7 @@ function Photos({ cfg, update, b, pin, refresh }) {
     ${!ids.length ? html`<p style="font-weight:800;color:var(--muted)">No photos yet${cfg.photos?.onScreensaver === false ? ' (or the screensaver switch is off)' : ''}.</p>` : ''}`;
 }
 const NKINDS = [['quest', 'A quest is claimed'], ['reward', 'A reward or cash is asked for'], ['done', 'A kid finishes their whole list'], ['feedback', 'New feedback'], ['morning', 'Morning briefing'], ['payday', 'Pay day summary']];
-function Notify({ cfg, update, b, pin }) {
+function Notify({ cfg, update, b, pin, go }) {
   const [st, setSt] = useState({ loading: true }); const [who, setWho] = useState(localStorage.getItem('fb-who') || cfg.family.parents[0].name); const [prefs, setPrefs] = useState(NKINDS.map(([k]) => k)); const [msg, setMsg] = useState('');
   const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
   const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
@@ -134,7 +141,7 @@ function Notify({ cfg, update, b, pin }) {
   const off = async () => { if (st.sub) { await api('/api/push/unsubscribe', { endpoint: st.sub.endpoint }); await st.sub.unsubscribe().catch(() => {}); } setSt({}); toast('Notifications off on this device'); };
   const test = async () => { try { await api('/api/push/test', { endpoint: st.sub.endpoint }, pin); setMsg('Sent. It should pop up in a few seconds.'); } catch (e) { setMsg(e.message); } };
   return html`<h3>Notifications</h3><p style="font-size:12px;color:var(--muted);font-weight:700;margin:4px 0">Turn this on from each parent's phone. Each phone picks what it hears about.</p>
-    ${ios && !standalone ? html`<div class="trow" style="background:var(--note)">On iPhone and iPad, notifications only work from the home-screen app: tap Share, then Add to Home Screen, open the board from that icon, and come back here.</div>` : ''}
+    ${ios && !standalone ? html`<div class="trow" style="background:var(--note)">On iPhone and iPad, notifications come through the app. <button class="pill sm" onClick=${() => go('app')}>Get the app</button></div>` : ''}
     ${!supported ? html`<div class="trow" style="background:var(--note)">This browser cannot receive notifications. Use Chrome on Android, or the home-screen app on iPhone.</div>` : html`
       <${F} label="This phone belongs to"><div class="chips">${cfg.family.parents.map((p) => html`<button class=${who === p.name ? 'on' : ''} style=${who === p.name ? { background: '#1f3a5f', color: '#fff' } : {}} onClick=${() => { setWho(p.name); save(null, p.name); }}>${p.name}</button>`)}</div></${F}>
       <div class="sub">Tell me when</div>${NKINDS.map(([k, lab]) => html`<div class="frow"><label>${lab}</label><${Tog} on=${prefs.includes(k)} set=${(v) => { const n = v ? [...prefs, k] : prefs.filter((x) => x !== k); setPrefs(n); save(n); }} />${k === 'morning' ? html`<input type="time" value=${cfg.notify?.morningAt || '06:45'} onInput=${(e) => update((c) => { c.notify = { ...(c.notify || {}), morningAt: e.target.value }; })} />` : ''}</div>`)}
