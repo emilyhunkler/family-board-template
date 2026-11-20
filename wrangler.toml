@@ -37,8 +37,8 @@ STAGE = "staging"
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "family_board_staging"
-# Paste the staging database's ID here once it's made in Cloudflare (Storage & Databases → D1).
-database_id = "REPLACE_WITH_STAGING_DATABASE_ID"
+# The test copy's own database, in the same Cloudflare account as the live board.
+database_id = "419c1dd6-e938-4bfa-9a13-44deb093b84d"
 migrations_dir = "migrations"
 
 [env.staging.triggers]

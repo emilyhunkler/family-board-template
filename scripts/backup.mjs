@@ -8,7 +8,7 @@ const db = staging ? 'family_board_staging' : 'family_board';
 const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 mkdirSync('backups', { recursive: true });
 const out = `backups/${db}-${stamp}.sql`;
-const args = ['wrangler', 'd1', 'export', 'DB', '--remote', '--output', out, ...(staging ? ['--env', 'staging'] : [])];
+const args = ['wrangler', 'd1', 'export', db, '--remote', '--output', out, ...(staging ? ['--env', 'staging'] : [])];
 console.log(`Backing up ${db} to ${out} ...`);
 execFileSync('npx', args, { stdio: 'inherit' });
 console.log(`Saved ${out}. Keep it somewhere safe and private, not in the repo.`);
