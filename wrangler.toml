@@ -57,6 +57,8 @@ workers_dev = true
 
 [env.staging.vars]
 STAGE = "staging"
+# Lets anyone try creating a new pretend family on the test copy. The live board's codes are set in Cloudflare.
+SIGNUP_CODES = "TEST-FAMILY"
 
 [[env.staging.d1_databases]]
 binding = "DB"

@@ -6,6 +6,14 @@ date when it goes live (see RELEASING.md).
 
 ## Unreleased
 
+### For families
+- New families can find sign-up at a glance. The sign-in page now has a big "Create your family's board" button under the sign-in, where before it was a small link at the very bottom that was easy to miss.
+- A sign-up link can carry the invite code, like `/auth/signup?code=SPRING-25`, so the code is already filled in.
+
+### Behind the scenes
+- The site overview (`/owner`) lists a ready-made sign-up link for each invite code.
+- The test copy takes the invite code `TEST-FAMILY`, so new-family sign-up can be tried there.
+
 ## 2026-11-20
 
 ### For families

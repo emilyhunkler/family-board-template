@@ -428,7 +428,8 @@ async function authRoute(env, req, path, cfg, userCount, session) {
   // ----- a new family signs up (shared sites only; needs an invite code while in testing) -----
   if (path === '/auth/signup') {
     if (!signupCodes(env).length) return A.simplePage('Sign-up is closed', 'This board is not taking new families right now.');
-    if (req.method !== 'POST') return O.signupPage({ site: name, google });
+    // A link like /auth/signup?code=SPRING-25 fills in the invite code, so the site owner can send one link.
+    if (req.method !== 'POST') return O.signupPage({ site: name, google, v: { code: String(new URL(req.url).searchParams.get('code') || '').trim().slice(0, 40) } });
     const f = await formOf(req); const ip = ipOf(req); const again = (msg) => O.signupPage({ site: name, google, msg, v: { ...f, password: '' } });
     const wait = await A.check(env, 'signup:' + ip, 10); if (wait) return again(`Too many tries. Wait ${wait} minutes.`);
     const code = String(f.code || '').trim().toUpperCase(); if (!signupCodes(env).some((c) => A.sameString(c, code))) { await A.fail(env, 'signup:' + ip, 60 * 60); return again('That invite code is not right.'); }
@@ -515,7 +516,7 @@ async function authRoute(env, req, path, cfg, userCount, session) {
       FROM households h /* all-families: the owner's overview counts each family, never its contents */ ORDER BY h.id`).bind(nowIso()).all()).results;
     const totals = families.reduce((t, x) => ({ grownups: t.grownups + x.grownups, devices: t.devices + x.devices, photo_bytes: t.photo_bytes + x.photo_bytes }), { grownups: 0, devices: 0, photo_bytes: 0 });
     const feedback = (await env.DB.prepare('SELECT household_id, text, created_at, issue_url FROM feedback /* all-families: feedback sent to the owner */ ORDER BY id DESC LIMIT 30').all()).results;
-    return AC.ownerPage({ site: name, families, totals, feedback, signupOpen: signupCodes(env).length > 0 });
+    return AC.ownerPage({ site: name, families, totals, feedback, signupOpen: signupCodes(env).length > 0, signupLinks: signupCodes(env).map((c) => `${origin}/auth/signup?code=${encodeURIComponent(c)}`) });
   }
   // The new iPhone or iPad app signs in once with the code its Safari page made (see lib/app.js).
   if (path === '/auth/app/claim' && req.method === 'POST') {
