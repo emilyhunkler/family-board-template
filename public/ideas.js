@@ -173,7 +173,9 @@ export function timesUpWords({ minutes = 5, kids = [], seed = 0 }) {
   const hint = left.length === 1 ? `${left[0][0]} still has ${count(left[0][1], 'job')} to do.`
     : left.length ? `${list(left.map(([name, c], i) => (i ? `${name} has ${c}` : `${name} has ${count(c, 'job')} left`)))}.`
     : 'All the jobs are done, so let’s go do something fun together!';
-  return { title: 'Time’s up! ⏰', text: TIMES_UP[Math.abs(seed | 0) % TIMES_UP.length](n).replace(/^./, (c) => c.toUpperCase()), hint };
+  // The "no jobs ticked off yet" line only fits while there are jobs left.
+  const lines = left.length ? TIMES_UP : TIMES_UP.filter((f) => !/jobs? ticked off/.test(f('x')));
+  return { title: 'Time’s up! ⏰', text: lines[Math.abs(seed | 0) % lines.length](n).replace(/^./, (c) => c.toUpperCase()), hint };
 }
 const count = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 const list = (xs) => (xs.length < 2 ? xs.join('') : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1]);

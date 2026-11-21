@@ -2,7 +2,7 @@
 // Also runs again from Parents → Advanced → PIN and setup. It edits the same config the Parents screen edits, and saves after every step.
 // Kids make their own avatars afterwards, in kids.js.
 import { useState, useEffect, useRef } from 'https://cdn.jsdelivr.net/npm/preact@11.2.0/hooks/+esm';
-import { html, api, put, toast, chime, confetti, andList } from './app.js';
+import { html, api, put, toast, chime, confetti, andList, WordsBox } from './app.js';
 
 const COLORS = ['#ff7a90', '#5aa9ff', '#ffc857', '#7fd6b0', '#c3a6ff', '#ff9f5a', '#4cc9c0', '#f28ad8'];
 const WEEKDAYS = [1, 2, 3, 4, 5]; const EVERY = [0, 1, 2, 3, 4, 5, 6];
@@ -163,8 +163,8 @@ function Calendars({ c, edit, pin, calMode, setCalMode }) {
   const setFam = (v) => edit((n) => { let f = n.calendars.find((x) => x.id === 'family'); if (!f) { f = { id: 'family', name: 'Family', color: '#1f3a5f', owner: null, enabled: true }; n.calendars.unshift(f); } f.url = v; });
   const own = (p) => c.calendars.find((x) => x.owner === p.id);
   const setOwn = (p, v) => edit((n) => { let x = n.calendars.find((y) => y.owner === p.id); if (!x) { x = { id: 'own-' + p.id, name: p.name, color: p.color, owner: p.id, enabled: true }; n.calendars.push(x); } x.url = v; x.name = p.name; x.color = p.color; });
-  const words = (p) => (p.match || []).filter((w) => w.toLowerCase() !== p.name.toLowerCase()).join(', ');
-  const setWords = (p, v) => edit((n) => { const q = [...n.family.parents, ...n.kids].find((x) => x.id === p.id); q.match = [...new Set([q.name, ...v.split(',').map((x) => x.trim()).filter(Boolean)])]; });
+  const words = (p) => (p.match || []).filter((w) => w.toLowerCase() !== p.name.toLowerCase());
+  const setWords = (p, v) => edit((n) => { const q = [...n.family.parents, ...n.kids].find((x) => x.id === p.id); q.match = [...new Set([q.name, ...v])]; });
   const choice = (m, e, t, s) => html`<button class=${'choice' + (mode === m ? ' on' : '')} onClick=${() => setCalMode(m)}><span>${e}</span><b>${t}</b><small>${s}</small></button>`;
   return html`<h2>How does your family keep track of plans? 📅</h2><p class="wizp">Connect your calendar and everyone’s events show up on the board, in their own color. No calendar yet? Tap Next and add one later.</p>
     <div class="choices">${choice('shared', '👨‍👩‍👧', 'One family calendar', 'We all put plans on the same one')}${choice('each', '🙋', 'Each of us has our own', 'Mom’s, Dad’s, maybe the kids’ too')}${choice('both', '✨', 'Both', 'A family one, plus our own')}</div>
@@ -177,7 +177,7 @@ function Calendars({ c, edit, pin, calMode, setCalMode }) {
       <p><b>Outlook</b>: Settings, Calendar, Shared calendars, “Publish a calendar”, then copy the ICS link.</p>
       <p>Keep the link private. Anyone who has it can see the calendar.</p></details>
     ${mode !== 'each' ? html`<div class="wizf"><label>Whose events are whose?</label><p class="wizp" style="margin-top:0">On a shared calendar, we spot each person’s name in an event, like “${c.kids[0]?.name || 'Maya'} soccer”, and color it for them. Add other words that mean them, like a nickname or their activities.</p>
-      ${people.map((p) => html`<div class="perscal"><span class="pdot" style=${{ background: p.color }}>${p.name[0]}</span><b>${p.name}</b><input class="gbox sm" style="flex:1" value=${words(p)} placeholder=${p.grown === undefined && c.kids.includes(p) ? 'Like soccer, piano, Scouts' : 'Like your first name, book club'} onInput=${(e) => setWords(p, e.target.value)} /></div>`)}</div>` : ''}`;
+      ${people.map((p) => html`<div class="perscal"><span class="pdot" style=${{ background: p.color }}>${p.name[0]}</span><b>${p.name}</b><${WordsBox} class="gbox sm" style="flex:1" words=${words(p)} placeholder=${p.grown === undefined && c.kids.includes(p) ? 'Like soccer, piano, Scouts' : 'Like your first name, book club'} onWords=${(v) => setWords(p, v)} /></div>`)}</div>` : ''}`;
 }
 
 function Chores({ c, edit }) {

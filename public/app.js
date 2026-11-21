@@ -32,6 +32,14 @@ export const grownups = (b) => (b.config.family.parents || []).map((p) => p.name
 // "today", "tomorrow" or the weekday name of this week's pay day
 export const payLabel = (b) => { if (!b.payDay) return ''; if (b.payDay === b.today) return 'today'; if (b.payDay === addDays(b.today, 1)) return 'tomorrow'; return DAYN[fromYmd(b.payDay).getDay()]; };
 const money = (n) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
+// A text box for a list of words split by commas ("violin, swim"). It keeps what's typed as typed (a comma or
+// a space at the end stays put), and hands the list over as it changes. A redraw doesn't reset it while it's in use.
+export const splitWords = (v) => String(v || '').split(',').map((x) => x.trim()).filter(Boolean);
+export function WordsBox({ words, onWords, ...rest }) {
+  const shown = (words || []).join(', '); const [t, setT] = useState(shown); const using = useRef(false);
+  useEffect(() => { if (!using.current) setT(shown); }, [shown]);
+  return html`<input type="text" ...${rest} value=${t} onFocus=${() => { using.current = true; }} onBlur=${() => { using.current = false; setT(splitWords(t).join(', ')); }} onInput=${(e) => { setT(e.target.value); onWords(splitWords(e.target.value)); }} />`;
+}
 export const toast = (msg) => { const el = document.createElement('div'); el.className = 'toast'; el.textContent = msg; document.body.appendChild(el); setTimeout(() => el.remove(), 2200); };
 let audio; export function chime(kind = 'ok') { try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); const o = audio.createOscillator(), g = audio.createGain(); o.connect(g); g.connect(audio.destination); const t = audio.currentTime; const notes = kind === 'ok' ? [660, 880] : kind === 'win' ? [523, 659, 784, 1046] : [330]; notes.forEach((f, i) => { o.frequency.setValueAtTime(f, t + i * 0.12); }); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.2, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12 * notes.length + 0.2); o.start(t); o.stop(t + 0.12 * notes.length + 0.25); } catch {} }
 // Pay day's "cha-ching": the drawer's rattle, then two bright bell notes.
@@ -121,10 +129,11 @@ function PinPad({ onOk, onClose, title = 'Grown-up PIN' }) {
     <div class="pinpad">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => html`<button onClick=${() => press(String(d))}>${d}</button>`)}<button onClick=${() => setV('')}>⌫</button><button onClick=${() => press('0')}>0</button><button onClick=${onClose}>✕</button></div></div></div>`;
 }
 export function usePin() {
-  const [pin, setPin] = useState(sessionStorage.getItem('pin') || ''); const [ask, setAsk] = useState(null); const parentRef = useRef(false);
-  const withPin = useCallback((fn) => { if (parentRef.current) return fn(pin || ''); if (pin) return fn(pin); return new Promise((res) => setAsk({ fn, res })); }, [pin]);
-  const ui = ask ? html`<${PinPad} onClose=${() => { ask.res(null); setAsk(null); }} onOk=${async (p) => { try { await api('/api/admin/config', undefined, p); } catch (e) { chime('bad'); if (e.locked) { toast(e.message); ask.res(null); setAsk(null); } else toast('Wrong PIN'); return; } setPin(p); sessionStorage.setItem('pin', p); const r = await ask.fn(p); ask.res(r); setAsk(null); }} />` : null;
-  return { pin, setPin: (p) => { setPin(p); if (p) sessionStorage.setItem('pin', p); else sessionStorage.removeItem('pin'); }, withPin, ui, setParent: (v) => { parentRef.current = !!v; } };
+  const [pin, setPin] = useState(() => { try { return sessionStorage.getItem('pin') || ''; } catch { return ''; } }); const [ask, setAsk] = useState(null); const parentRef = useRef(false);
+  // fresh: always ask for the PIN, even if it was typed a moment ago (for things kids shouldn't do on their own).
+  const withPin = useCallback((fn, opts) => { if (parentRef.current) return fn(pin || ''); if (pin && !opts?.fresh) return fn(pin); return new Promise((res) => setAsk({ fn, res })); }, [pin]);
+  const ui = ask ? html`<${PinPad} onClose=${() => { ask.res(null); setAsk(null); }} onOk=${async (p) => { try { await api('/api/admin/config', undefined, p); } catch (e) { chime('bad'); if (e.locked) { toast(e.message); ask.res(null); setAsk(null); } else toast('Wrong PIN'); return; } setPin(p); try { sessionStorage.setItem('pin', p); } catch {} const r = await ask.fn(p); ask.res(r); setAsk(null); }} />` : null;
+  return { pin, setPin: (p) => { setPin(p); try { if (p) sessionStorage.setItem('pin', p); else sessionStorage.removeItem('pin'); } catch {} }, withPin, ui, setParent: (v) => { parentRef.current = !!v; } };
 }
 
 // ---------- weather pieces ----------
@@ -499,12 +508,12 @@ function MealSheet({ date, meal, onClose, refresh }) {
 }
 // ---------- feedback ----------
 function FeedbackSheet({ b, page, onClose }) {
-  const [who, setWho] = useState(localStorage.getItem('fb-who') || ''); const [text, setText] = useState(''); const [rec, setRec] = useState(false); const [sent, setSent] = useState(null);
+  const [who, setWho] = useState(() => { try { return localStorage.getItem('fb-who') || ''; } catch { return ''; } }); const [text, setText] = useState(''); const [rec, setRec] = useState(false); const [sent, setSent] = useState(null);
   const people = [...b.config.family.parents.map((p) => p.name), ...b.kids.map((k) => k.name)];
   const talk = async () => { if (rec) { dictate.stop && dictate.stop(); return; } setRec(true); const base = text ? text.trim() + ' ' : ''; const out = await dictate({ onInterim: (t) => setText(base + t) }); setRec(false); if (out) setText(base + out); };
   const micOff = () => { if (dictate.stop) dictate.stop(); };
   useEffect(() => micOff, []); // closing the sheet always turns the mic off
-  const send = async () => { if (!text.trim()) return; micOff(); try { const r = await api('/api/feedback', { text: text.trim(), from: who, page }); localStorage.setItem('fb-who', who); chime('win'); setSent(r.issueUrl || true); } catch (e) { toast(e.message); } };
+  const send = async () => { if (!text.trim()) return; micOff(); try { const r = await api('/api/feedback', { text: text.trim(), from: who, page }); try { localStorage.setItem('fb-who', who); } catch {} chime('win'); setSent(r.issueUrl || true); } catch (e) { toast(e.message); } };
   return html`<div class="ov" onClick=${onClose}><div class="sheet" style="width:560px" onClick=${(e) => e.stopPropagation()}><button class="close" onClick=${onClose}>×</button>
     ${sent ? html`<h3>💛 Thank you!</h3><p style="font-weight:800;color:var(--ink2)">We got it. Ideas like yours make the board better for every family.${sent !== true ? html` <a target="_blank" href=${sent}>See your idea</a>` : ''}</p><div class="btns"><button class="pill" onClick=${onClose}>Done</button></div>` : html`
     <h3>💬 Feedback</h3><p style="font-weight:800;color:var(--muted);margin:4px 0 10px">Something confusing, broken, or an idea? Say it or type it.</p>
@@ -605,7 +614,7 @@ function inWindow(from, to, now) { const cur = now.getHours() * 60 + now.getMinu
 // rests for a while. Kids' pages (chores, pay day, brain quests) and grown-up settings stay open the whole time.
 const QUIET_KEY = 'fb-quiet-until';
 const quietSaved = () => { try { const u = +localStorage.getItem(QUIET_KEY); return u > Date.now() ? { until: u } : null; } catch { return null; } };
-function GoPlay({ b, quiet, onKid, onSettings, onEnd, withPin }) {
+function GoPlay({ b, quiet, onKid, onSettings, onEnd, onSeen, withPin }) {
   const [t, setT] = useState(new Date()); useEffect(() => { const i = setInterval(() => setT(new Date()), 15000); return () => clearInterval(i); }, []);
   const words = goPlayWords({ kids: b.kids, isSchoolDay: b.isSchoolDay, now: t, sleepFrom: b.config.ambient?.sleepFrom, idea: todayIdea(b), pet: b.config.family.dog });
   const left = (k) => k.today.filter((x) => !x.doneByOther && !x.done).length; const open = b.kids.filter((k) => k.payday || left(k));
@@ -616,14 +625,14 @@ function GoPlay({ b, quiet, onKid, onSettings, onEnd, withPin }) {
     return html`<div class="goplay" onClick=${(e) => e.stopPropagation()}><div class="gpcard gpup">
       <div class="mascot gpm" dangerouslySetInnerHTML=${{ __html: MASCOT }}></div>
       <h2>${u.title}</h2><p class="gpsay">${u.text}</p><p class="gphint">${u.hint}</p>
-      <button class="pill gpnext" onClick=${() => { setUp(false); speak(words.text); }}>Okay, what now? 👉</button>
+      <button class="pill gpnext" onClick=${() => { setUp(false); onSeen?.(); speak(words.text); }}>Okay, what now? 👉</button>
     </div></div>`; }
   return html`<div class="goplay" onClick=${(e) => e.stopPropagation()}><div class="gpcard">
     <div class="mascot gpm" dangerouslySetInnerHTML=${{ __html: MASCOT }}></div>
     <h2>${words.title}</h2><p class="gpsay">${words.text}</p>
     <p class="gpback">${quiet.preview ? 'This is a preview. ' : ''}The board is taking a break until <b>${back}</b>.</p>
     ${open.length ? html`<div class="gpkids"><small>Jobs and pay day are still open</small><div>${open.map((k) => html`<button style=${{ '--kc': k.color }} onClick=${() => onKid(k.id)}><${Avatar} kid=${k} size="34px" /><span>${k.name}<small>${k.payday ? '💰 pay day' : `${left(k)} job${left(k) === 1 ? '' : 's'}`}</small></span></button>`)}</div></div>` : ''}
-    <div class="gpfoot"><button class="pill ghost sm" onClick=${onSettings}>⚙️ Grown-ups</button>${quiet.preview ? html`<button class="pill sm" onClick=${onEnd}>End preview</button>` : html`<button class="pill ghost sm" onClick=${() => withPin(async () => { onEnd(); return true; })}>🔓 End the break</button>`}</div>
+    <div class="gpfoot"><button class="pill ghost sm" onClick=${onSettings}>⚙️ Grown-ups</button>${quiet.preview ? html`<button class="pill sm" onClick=${onEnd}>End preview</button>` : html`<button class="pill ghost sm" onClick=${() => withPin(async () => { onEnd(); return true; }, { fresh: true })}>🔓 End the break</button>`}</div>
   </div></div>`;
 }
 
@@ -807,8 +816,10 @@ function App() {
   pinApi.setParent(b?.me?.kind === 'parent');
   const bootVersion = useRef(null); const [update, setUpdate] = useState(false);
   // "Get the app": a gentle offer the first time, and the steps whenever someone asks for them.
-  const [appOpen, setAppOpen] = useState(reopenGuide); const [nudge, setNudge] = useState(false);
-  useEffect(() => { if (nudgeWanted()) hasAppAlready().then((yes) => { if (!yes && nudgeWanted()) setNudge(true); }); }, []);
+  const reopened = useRef(null); if (reopened.current === null) reopened.current = reopenGuide();
+  const [appOpen, setAppOpen] = useState(reopened.current); const [nudge, setNudge] = useState(false);
+  // Once the steps have been opened on this visit (Show me reloads the page to reopen them), the banner doesn't come back.
+  useEffect(() => { if (!reopened.current && nudgeWanted()) hasAppAlready().then((yes) => { if (!yes && nudgeWanted() && !reopened.current) setNudge(true); }); }, []);
   useEffect(() => { const o = () => { setNudge(false); setAppOpen(true); }; addEventListener('fb-get-app', o); return () => removeEventListener('fb-get-app', o); }, []);
   const refresh = refreshBoard = useCallback(async () => { try { const j = await api('/api/board'); setMascot(j.config.family); if (!bootVersion.current) bootVersion.current = j.version; else if (j.version && j.version !== bootVersion.current) setUpdate(true); setB(j); setErr(''); } catch (e) { setErr(e.message); } }, []);
   useEffect(() => { const back = () => { if (document.visibilityState === 'visible') refresh(); }; document.addEventListener('visibilitychange', back); return () => document.removeEventListener('visibilitychange', back); }, [refresh]);
@@ -833,12 +844,14 @@ function App() {
   const endQuiet = () => { try { localStorage.removeItem(QUIET_KEY); } catch {} play.reset(); setQuiet(null); };
   useEffect(() => { const tap = () => play.tap(Date.now()); addEventListener('pointerdown', tap, { passive: true, capture: true }); return () => removeEventListener('pointerdown', tap, { capture: true }); }, []);
   useEffect(() => { const i = setInterval(() => {
-    if (quiet) { if (Date.now() >= quiet.until) endQuiet(); return; }
     const n = b?.config.nudge || {}; const kidsTurn = (b?.config.setup?.kidsTurn || []).length;
+    // Turning "Go play!" off in settings ends a break that's running (a preview just runs out).
+    if (quiet) { if (Date.now() >= quiet.until || (n.on === false && !quiet.preview)) endQuiet(); return; }
     // Taps don't count while grown-ups are in settings, on pay day, in a brain quest, while kids make their avatars, or off the kitchen screen.
-    if (!b || n.on === false || parentView || parents || payOpen || ambient || kidsTurn || document.querySelector('.payday, .sheet.quiz, .wiz, .gm')) { play.reset(); return; }
+    // A kid on their own page (jobs, bank, their week) is busy with the right things, so those taps don't count either.
+    if (!b || n.on === false || parentView || parents || payOpen || ambient || kidsTurn || b.kids.some((k) => k.id === page) || document.querySelector('.payday, .sheet.quiz, .wiz, .gm')) { play.reset(); return; }
     if (play.due(Date.now(), n.minutes || 5)) startQuiet(false);
-  }, 5000); return () => clearInterval(i); }, [b, quiet, parents, payOpen, ambient, startQuiet]);
+  }, 5000); return () => clearInterval(i); }, [b, quiet, parents, payOpen, ambient, startQuiet, page]);
   useEffect(() => { const p = () => { setParents(false); startQuiet(true); }; addEventListener('fb-preview-goplay', p); return () => removeEventListener('fb-preview-goplay', p); }, [startQuiet]);
   // Opening the board with ?goplay on the end shows the "Go play!" screen straight away, to try it.
   const goplayAsked = useRef(new URLSearchParams(location.search).has('goplay')); useEffect(() => { if (b && goplayAsked.current) { goplayAsked.current = false; startQuiet(true); } }, [b]);
@@ -852,7 +865,10 @@ function App() {
   useEffect(() => { const el = pagesRef.current; const t = pageEl(pageList.indexOf(page)); if (el && t) el.scrollTo({ left: t.offsetLeft }); }, [b && pageList.length]);
   // First load on a grown-up's phone opens their page; links like /#groceries (from notifications) open that page.
   const firstRef = useRef(true);
-  useEffect(() => { if (!b) return; const fromHash = () => { const h = decodeURIComponent(location.hash.slice(1)); if (h && pageList.includes(h)) { setTimeout(() => setPage(h), 30); return true; } return false; };
+  useEffect(() => { if (!b) return; const fromHash = () => { const h = decodeURIComponent(location.hash.slice(1)); if (!h) return false;
+      // Cleared once read, so tapping the same notification again (same address) still lands on the page, and a reload opens home.
+      try { history.replaceState(null, '', location.pathname + location.search); } catch {}
+      if (pageList.includes(h)) { setTimeout(() => setPage(h), 30); return true; } return false; };
     if (firstRef.current) { firstRef.current = false; if (!fromHash() && parentView && page === 'home') setTimeout(() => setPage('today'), 30); }
     const on = () => fromHash(); addEventListener('hashchange', on); return () => removeEventListener('hashchange', on); }, [b && pageList.join()]);
   const startTimer = (seconds, label, cb) => { timerCb.current = cb; setTimer({ seconds, label }); };
@@ -877,7 +893,7 @@ function App() {
     ${update ? html`<div class="updatebar"><span>✨ A new version of the board is ready.</span><button class="pill sm" onClick=${() => location.reload()}>Refresh now</button><button class="pill sm lite" onClick=${() => setUpdate(false)}>Later</button></div>` : ''}
     ${b.stage ? html`<div class="banner stage">🧪 Test copy (${b.stage}). Nothing here touches real families.</div>` : ''}
     ${nudge && !appOpen && !parents && !(parentView && b.start && !startHidden()) ? html`<${AppNudge} onOpen=${() => { setNudge(false); setAppOpen(true); }} onClose=${() => setNudge(false)} />` : ''}
-    ${appOpen ? html`<${AppSheet} name=${b.appName} onClose=${() => setAppOpen(false)} />` : ''}
+    ${appOpen ? html`<${AppSheet} name=${b.appName} onClose=${() => { setAppOpen(false); setNudge(false); reopened.current = true; }} />` : ''}
     <div class="pages" ref=${pagesRef} onScroll=${onScroll}>
       ${pageList.map((p) => { const k = b.kids.find((x) => x.id === p);
         if (k) return html`<${KidPage} key=${k.id} b=${b} k=${k} refresh=${refresh} setPage=${setPage} startTimer=${startTimer} withPin=${pinApi.withPin} openPay=${() => openPay(k)} />`;
@@ -892,9 +908,9 @@ function App() {
     ${ev ? html`<${EventSheet} ev=${ev} b=${b} onClose=${() => setEv(null)} />` : ''}
     ${wx ? html`<${WxPanel} b=${{ ...b, setUnits: async (u) => { await api('/api/units', { units: u }); refresh(); } }} onClose=${() => setWx(false)} />` : ''}
     ${fb ? html`<${FeedbackSheet} b=${b} page=${page} onClose=${() => setFb(false)} />` : ''}
-    ${parents ? html`<${Parents} b=${b} refresh=${refresh} pinApi=${pinApi} start=${typeof parents === 'string' ? parents : null} onClose=${() => setParents(false)} />` : ''}
+    ${parents ? html`<${Parents} b=${b} refresh=${refresh} pinApi=${pinApi} start=${typeof parents === 'string' ? parents : null} onClose=${() => { setParents(false); if (display) pinApi.setPin(''); }} />` : ''}
     ${pinApi.ui}
-    ${quiet && display && !parents && !payOpen && !b.kids.some((k) => k.id === page) ? html`<${GoPlay} b=${b} quiet=${quiet} withPin=${pinApi.withPin} onKid=${(id) => setPage(id)} onSettings=${() => setParents(true)} onEnd=${endQuiet} />` : ''}
+    ${quiet && display && !parents && !payOpen && !b.kids.some((k) => k.id === page) ? html`<${GoPlay} b=${b} quiet=${quiet} withPin=${pinApi.withPin} onKid=${(id) => setPage(id)} onSettings=${() => setParents(true)} onEnd=${endQuiet} onSeen=${() => setQuiet((q) => (q ? { ...q, fresh: false } : q))} />` : ''}
     ${payOpen && !parents && b.kids.find((x) => x.id === payOpen.id) ? html`<${PayDay} key=${payOpen.id + payOpen.due.week} b=${b} k=${b.kids.find((x) => x.id === payOpen.id)} due=${payOpen.due} bal=${payOpen.bal} refresh=${refresh}
       onClose=${() => { setPayShut({ ...payShut, [payOpen.id]: payOpen.due.week }); setPayOpen(null); }} />` : ''}
     ${preview === 'night' ? html`<${Sleep} onWake=${() => setPreview(null)} />` : preview === 'morning' ? html`<${GoodMorning} b=${b} onDone=${() => setPreview(null)} openKid=${(id) => { setPreview(null); setTimeout(() => setPage(id), 50); }} />` : parents ? '' : asleep ? html`<${Sleep} onWake=${() => { idleRef.current = Date.now(); setAmbient(false); }} />` : morning ? html`<${GoodMorning} b=${b} onDone=${() => { idleRef.current = Date.now(); setAmbient(false); setGmClosed(true); }} openKid=${(id) => setTimeout(() => setPage(id), 50)} />` : ambient ? html`<${Ambient} b=${b} onWake=${() => setAmbient(false)} />` : ''}

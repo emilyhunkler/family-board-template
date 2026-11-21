@@ -4,8 +4,23 @@ import { addDaysYmd, weekdayOfYmd } from './ical.js';
 export const num = (v, d) => { const n = Number(v); return Number.isFinite(n) ? n : d; };
 export function dayNumber(ymd) { const [y, m, d] = ymd.split('-').map(Number); return Math.floor(Date.UTC(y, m - 1, d) / 86400000); }
 // The allowance week ends on pay day (default Sunday, so it starts Monday as before).
-export const payDayOf = (cfg) => (Number.isInteger(cfg.week?.payDay) ? cfg.week.payDay : ((cfg.week?.startsOn ?? 1) + 6) % 7);
-export const payWeekStart = (ymd, cfg) => weekStart(ymd, (payDayOf(cfg) + 1) % 7);
+// A new pay day starts once the week running when it was changed has ended (week.payDayFrom: { from, prev }),
+// so a week already paid is never paid again and no days are skipped.
+const setPayDay = (cfg) => (Number.isInteger(cfg.week?.payDay) ? cfg.week.payDay : ((cfg.week?.startsOn ?? 1) + 6) % 7);
+export const payDayOf = (cfg, ymd) => { const ch = cfg.week?.payDayFrom; return ymd && ch?.from && Number.isInteger(ch.prev) && ymd < ch.from ? ch.prev : setPayDay(cfg); };
+export const payWeekStart = (ymd, cfg) => weekStart(ymd, (payDayOf(cfg, ymd) + 1) % 7);
+// next: the config about to be saved. When its pay day differs from the one in use today, the change waits
+// until the day after this week's pay day. Changing it back before then cancels the change.
+// opts.now: the family has never had a pay day yet, so a new pay day can start straight away.
+export function withPayDayChange(cur, next, today, opts = {}) {
+  if (!next?.week) return next;
+  if (opts.now) { delete next.week.payDayFrom; return next; } const inUse = payDayOf(cur, today); const wanted = setPayDay(next); const ch = cur.week?.payDayFrom;
+  const pending = ch?.from && today < ch.from;
+  if (pending) { if (wanted === ch.prev) delete next.week.payDayFrom; else next.week.payDayFrom = { ...ch }; return next; }
+  if (wanted === inUse) { if (ch) next.week.payDayFrom = { ...ch }; else delete next.week.payDayFrom; return next; }
+  next.week.payDayFrom = { from: addDaysYmd(payWeekStart(today, cur), 7), prev: inUse };
+  return next;
+}
 export function weekStart(ymd, startsOn = 1) { const back = (weekdayOfYmd(ymd) - startsOn + 7) % 7; return addDaysYmd(ymd, -back); }
 export function isSchoolDay(ymd, cfg) {
   const s = cfg.school || {}; if ((s.daysOff || []).includes(ymd)) return false; if ((s.extraDays || []).includes(ymd)) return true;
@@ -74,11 +89,13 @@ export function roundDown(a, step = 0.25) { return Math.floor((a + 1e-9) / step)
 // goes over the weekly allowance.
 export function weekSummary(kid, wkStart, cfg, checks, todos, claims, today, plans, startPossible) {
   const days = []; let possible = 0, earned = 0, misses = 0, left = 0;
+  // The first week on a new pay day starts on the day the change took effect; days before it were paid in the old week.
+  const ch = cfg.week?.payDayFrom; const freeBefore = ch?.from && wkStart < ch.from && addDaysYmd(wkStart, 6) >= ch.from ? ch.from : null;
   const approved = claims.filter((c) => c.kid === kid.id && c.status === 'approved');
   for (let i = 0; i < 7; i++) {
     const d = addDaysYmd(wkStart, i); const bonus = approved.filter((c) => c.date === d).reduce((s, c) => s + num(c.stars, 0), 0);
     // Days before the family started using the board don't count, so a first partial week isn't full of misses.
-    if (cfg.week?.startedOn && d < cfg.week.startedOn) { days.push({ date: d, status: 'free', possible: 0, earned: 0, scheduled: 0, done: 0, missed: 0, open: 0, bonus, items: [] }); continue; }
+    if ((cfg.week?.startedOn && d < cfg.week.startedOn) || (freeBefore && d < freeBefore)) { days.push({ date: d, status: 'free', possible: 0, earned: 0, scheduled: 0, done: 0, missed: 0, open: 0, bonus, items: [] }); continue; }
     const inst = planFor(d, cfg, todos, plans, today); const dc = checks.filter((c) => c.date === d);
     const p = dayPoints(kid.id, inst, dc, cfg); possible += p.possible; earned += p.earned;
     let status; if (d > today) status = 'upcoming'; else if (p.scheduled === 0) status = 'free'; else if (p.done >= p.scheduled) status = 'full'; else if (d === today) status = p.done ? 'part' : 'open'; else status = p.done ? 'part' : 'miss';

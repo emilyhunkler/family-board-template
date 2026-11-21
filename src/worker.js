@@ -11,6 +11,7 @@ import * as AC from './lib/account.js';
 import * as BK from './lib/bank.js';
 import * as APP from './lib/app.js';
 import * as ID from './lib/ideas.js';
+import { mergeChanges } from './lib/merge.js';
 
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
 const err = (msg, status = 400, extra = {}) => json({ error: msg, ...extra }, status);
@@ -525,7 +526,7 @@ async function authRoute(env, req, path, cfg, userCount, session) {
     const kind = row.kind === 'display' ? 'display' : 'parent'; const token = await A.createSession(env, { userId: row.user_id, householdId: row.household_id, kind, label: (kind === 'display' ? 'Kitchen display · ' : '') + A.deviceLabel(req) + ' · app' });
     return withCookies(json({ ok: true }), A.sessionCookie(token, kind));
   }
-  if (path === '/auth/signout') { const tok = cookieOf(req, 'fbs'); if (tok && /^[0-9a-f]{64}$/.test(tok)) await env.DB.prepare('DELETE FROM sessions /* all-families: by secret token */ WHERE id=?').bind(await A.sha256hex(tok)).run(); return redirect('/', A.clearCookie()); }
+  if (path === '/auth/signout') { const tok = cookieOf(req, 'fbs'); if (tok && /^[0-9a-f]{64}$/.test(tok)) { const sid = await A.sha256hex(tok); await env.DB.prepare('DELETE FROM push_subs /* all-families: by secret token */ WHERE session_id=?').bind(sid).run(); await env.DB.prepare('DELETE FROM sessions /* all-families: by secret token */ WHERE id=?').bind(sid).run(); } return redirect('/', A.clearCookie()); }
   return null;
 }
 async function newInvite(env, userId) { const token = A.randomHex(32); await env.DB.prepare('INSERT INTO invites(id,user_id,created_at,expires_at,household_id) VALUES(?,?,?,?,?)').bind(await A.sha256hex(token), userId, nowIso(), new Date(Date.now() + 7 * 86400000).toISOString(), env.HID).run(); return token; }
@@ -533,18 +534,26 @@ async function newInvite(env, userId) { const token = A.randomHex(32); await env
 // ---------- push notifications ----------
 const KINDS = ['quest', 'reward', 'done', 'feedback', 'morning', 'payday'];
 async function vapidKeys(env) { let v = await getSetting(env, 'vapid', null); if (!v) { v = await makeVapid(); await setSetting(env, 'vapid', v); } return v; }
-async function notify(env, kind, title, body, url = '/', onlyWho = null) {
+// tried: phones it went out to. sent: phones the push service took it for so far. pending: still sending when the
+// screen was answered (the sends carry on in the background, so a slow push service doesn't lose them).
+async function notify(env, kind, title, body, url = '/', onlyWho = null) { const r = await notifyDetail(env, kind, title, body, url, onlyWho); return r.pending ? r.tried : r.sent; }
+async function notifyDetail(env, kind, title, body, url = '/', onlyWho = null) {
   try {
     // Direct sends from the kitchen go to every phone that turned notifications on (or just the chosen person's); other kinds follow each phone's choices.
-    const subs = (await env.DB.prepare('SELECT * FROM push_subs WHERE household_id=?').bind(env.HID).all()).results.filter((x) => { if (onlyWho) return (x.who || '').toLowerCase() === onlyWho.toLowerCase(); if (kind === 'send') return true; try { return JSON.parse(x.prefs || '[]').includes(kind); } catch { return false; } });
-    if (!subs.length) return 0; const v = await vapidKeys(env); const subject = (await getSetting(env, 'origin', null)) || 'https://example.invalid';
+    // A phone whose sign-in has ended (signed out, removed or expired) gets nothing, and is tidied away.
+    const rows = (await env.DB.prepare('SELECT p.*, s.id AS live_session FROM push_subs p LEFT JOIN sessions s ON s.id = p.session_id AND s.household_id = p.household_id AND s.expires_at > ? WHERE p.household_id=?').bind(nowIso(), env.HID).all()).results;
+    const gone = rows.filter((x) => x.session_id && !x.live_session); for (const x of gone) await env.DB.prepare('DELETE FROM push_subs WHERE id=? AND household_id=?').bind(x.id, env.HID).run();
+    const subs = rows.filter((x) => !(x.session_id && !x.live_session)).filter((x) => { if (onlyWho) return (x.who || '').toLowerCase() === onlyWho.toLowerCase(); if (kind === 'send') return true; try { return JSON.parse(x.prefs || '[]').includes(kind); } catch { return false; } });
+    if (!subs.length) return { tried: 0, sent: 0 }; const v = await vapidKeys(env); const subject = (await getSetting(env, 'origin', null)) || 'https://example.invalid';
     const work = Promise.all(subs.map(async (x) => { try { const r = await sendPush({ endpoint: x.endpoint, keys: { p256dh: x.p256dh, auth: x.auth } }, { title, body, url, tag: kind }, v, subject); if (r.gone) await env.DB.prepare('DELETE FROM push_subs WHERE id=? AND household_id=?').bind(x.id, env.HID).run(); else if (r.ok) await env.DB.prepare('UPDATE push_subs SET last_ok=? WHERE id=? AND household_id=?').bind(nowIso(), x.id, env.HID).run(); return r.ok; } catch { return false; } }));
-    const res = await Promise.race([work, new Promise((r) => setTimeout(() => r([]), 4000))]); return res.filter(Boolean).length;
-  } catch { return 0; }
+    env.CTX?.waitUntil?.(work.catch(() => {}));
+    const res = await Promise.race([work, new Promise((r) => setTimeout(() => r(null), 4000))]);
+    return res ? { tried: subs.length, sent: res.filter(Boolean).length } : { tried: subs.length, sent: 0, pending: true };
+  } catch { return { tried: 0, sent: 0 }; }
 }
 // Pay day evening: tell the grown-ups what each kid earned this week.
 async function payDayNotice(env, cfg, req) {
-  const now = new Date(); const p = parts(now, cfg.zone); const today = ymd(now, cfg.zone); if (p.wd !== P.payDayOf(cfg)) return;
+  const now = new Date(); const p = parts(now, cfg.zone); const today = ymd(now, cfg.zone); if (p.wd !== P.payDayOf(cfg, today)) return;
   const [h, m] = (cfg.week?.closesAt || '18:00').split(':').map(Number); const mins = p.h * 60 + p.mi - (h * 60 + m); if (mins < 0 || mins > 45) return;
   if ((await getSetting(env, 'payday', '')) === today) return; await setSetting(env, 'payday', today);
   const snap = await board(env, cfg, req, new URL('https://board.local/'));
@@ -589,7 +598,7 @@ export default {
     const userCount = (await env.DB.prepare('SELECT COUNT(*) AS n FROM users /* all-families: is sign-in on for this site */ WHERE pw_hash IS NOT NULL').first().catch(() => ({ n: 0 })))?.n || 0;
     const session = userCount ? await A.readSession(env, req) : null;
     // From here on every lookup is for one family: the signed-in device's, or family 1 before sign-in exists.
-    env = { ...env, HID: session?.household_id || 1 };
+    env = { ...env, HID: session?.household_id || 1, CTX: ctx };
     if (path.startsWith('/auth/') || ['/link', '/privacy', '/account', '/account/export', '/account/delete', '/owner'].includes(path)) { const r = await authRoute(env, req, path, await getConfig(env), userCount, session); if (r) return r; }
     if (path === '/api/login' && req.method === 'POST') {
       if (userCount) return redirect('/');
@@ -680,14 +689,17 @@ export default {
           title = `📅 Today, ${evs.length} event${evs.length === 1 ? '' : 's'}`; text = [evs.slice(0, 6).map((e) => `${e.allDay ? '' : e.timeLabel + ' '}${e.title}${e.place ? ' (leave ' + e.place.leaveBy + ')' : ''}`).join(' · ') || 'Nothing on the calendar', meal ? `Dinner: ${meal.text}` : '', snap.kids.map((k) => `${k.name} ${k.today.filter((t) => t.done && !t.doneByOther).length}/${k.today.filter((t) => !t.doneByOther).length}`).join(', ')].filter(Boolean).join('\n'); }
         else if (what === 'note') { text = String(body.text || '').trim().slice(0, 300); if (!text) return err('Write a note first'); title = `💬 From the kitchen${body.from ? ', ' + String(body.from).slice(0, 30) : ''}`; }
         else return err('Nothing to send');
-        const n = await notify(env, 'send', title, text, link, body.to && body.to !== 'all' ? String(body.to) : null);
+        // Push services take about 4 KB, so a very long list is cut short with a count of the rest.
+        if (text.length > 1500) { const cut = text.slice(0, 1400); const shown = what === 'groceries' ? cut.split(', ').length - 1 : 0; text = what === 'groceries' ? cut.split(', ').slice(0, shown).join(', ') + `, and ${text.split(', ').length - shown} more` : cut + '…'; }
+        const r = await notifyDetail(env, 'send', title, text, link, body.to && body.to !== 'all' ? String(body.to) : null); const n = r.pending ? r.tried : r.sent;
+        if (r.tried && !n) return err("The phones couldn't be reached just now. Try again in a minute.", 502);
         if (!n) return err(body.to && body.to !== 'all' ? `${String(body.to).slice(0, 30)}'s phone isn't set up yet. On that phone, open the board and tap Turn on notifications.` : "No phones are set up yet. On each phone, open the board and tap Turn on notifications.", 404);
         return json({ ok: true, sent: n });
       }
       if (path === '/api/push/subscribe' && method === 'POST') {
         if (!admin()) return denyAdmin(req); const sub = body.sub; if (!sub?.endpoint || !sub?.keys?.p256dh || !sub?.keys?.auth) return err('bad subscription');
         const prefs = JSON.stringify((body.prefs || KINDS).filter((k) => KINDS.includes(k))); await setSetting(env, 'origin', url.origin);
-        await env.DB.prepare('INSERT INTO push_subs(endpoint,p256dh,auth,who,prefs,created_at,household_id) VALUES(?,?,?,?,?,?,?) ON CONFLICT(endpoint) DO UPDATE SET p256dh=excluded.p256dh, auth=excluded.auth, who=excluded.who, prefs=excluded.prefs, household_id=excluded.household_id').bind(sub.endpoint, sub.keys.p256dh, sub.keys.auth, body.who || null, prefs, nowIso(), env.HID).run();
+        await env.DB.prepare('INSERT INTO push_subs(endpoint,p256dh,auth,who,prefs,created_at,household_id,session_id,user_id) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(endpoint) DO UPDATE SET p256dh=excluded.p256dh, auth=excluded.auth, who=excluded.who, prefs=excluded.prefs, household_id=excluded.household_id, session_id=excluded.session_id, user_id=excluded.user_id').bind(sub.endpoint, sub.keys.p256dh, sub.keys.auth, body.who || null, prefs, nowIso(), env.HID, session?.id || null, session?.user_id || null).run();
         return json({ ok: true });
       }
       if (path === '/api/push/unsubscribe' && method === 'POST') { await env.DB.prepare('DELETE FROM push_subs WHERE endpoint=? AND household_id=?').bind(body.endpoint || '', env.HID).run(); return json({ ok: true }); }
@@ -788,18 +800,28 @@ export default {
           if (!u) { const r = await env.DB.prepare('INSERT INTO users(email,name,person_id,created_at,household_id) VALUES(?,?,?,?,?)').bind(email, person?.name || body.name || email.split('@')[0], person?.id || null, nowIso(), env.HID).run(); u = { id: r.meta.last_row_id }; }
           const token = await newInvite(env, u.id); return json({ ok: true, link: `${url.origin}/auth/invite?t=${token}` });
         }
-        if (sub === 'reset-user' && method === 'POST') { const u = await env.DB.prepare('SELECT id FROM users WHERE id=? AND household_id=?').bind(+body.userId, env.HID).first(); if (!u) return err('no such account', 404); await env.DB.prepare('DELETE FROM sessions WHERE user_id=? AND household_id=?').bind(u.id, env.HID).run(); const token = await newInvite(env, u.id); return json({ ok: true, link: `${url.origin}/auth/invite?t=${token}` }); }
-        if (sub === 'remove-user' && method === 'POST') { if (+body.userId === session?.user_id) return err('You cannot remove yourself'); const left = (await env.DB.prepare('SELECT COUNT(*) AS n FROM users WHERE pw_hash IS NOT NULL AND id != ? AND household_id=?').bind(+body.userId, env.HID).first()).n; if (!left) return err('Keep at least one parent account'); await env.DB.prepare('DELETE FROM sessions WHERE user_id=? AND household_id=?').bind(+body.userId, env.HID).run(); await env.DB.prepare('DELETE FROM users WHERE id=? AND household_id=?').bind(+body.userId, env.HID).run(); return json({ ok: true }); }
-        if (sub === 'revoke' && method === 'POST') { await env.DB.prepare('DELETE FROM sessions WHERE substr(id,1,16)=? AND household_id=?').bind(String(body.id || ''), env.HID).run(); return json({ ok: true }); }
-        if (sub === 'revoke-others' && method === 'POST') { await env.DB.prepare('DELETE FROM sessions WHERE id != ? AND household_id=?').bind(session?.id || '', env.HID).run(); return json({ ok: true }); }
+        if (sub === 'reset-user' && method === 'POST') { const u = await env.DB.prepare('SELECT id FROM users WHERE id=? AND household_id=?').bind(+body.userId, env.HID).first(); if (!u) return err('no such account', 404); await env.DB.prepare('DELETE FROM push_subs WHERE user_id=? AND household_id=?').bind(u.id, env.HID).run(); await env.DB.prepare('DELETE FROM sessions WHERE user_id=? AND household_id=?').bind(u.id, env.HID).run(); const token = await newInvite(env, u.id); return json({ ok: true, link: `${url.origin}/auth/invite?t=${token}` }); }
+        if (sub === 'remove-user' && method === 'POST') { if (+body.userId === session?.user_id) return err('You cannot remove yourself'); const left = (await env.DB.prepare('SELECT COUNT(*) AS n FROM users WHERE pw_hash IS NOT NULL AND id != ? AND household_id=?').bind(+body.userId, env.HID).first()).n; if (!left) return err('Keep at least one parent account'); await env.DB.prepare('DELETE FROM push_subs WHERE user_id=? AND household_id=?').bind(+body.userId, env.HID).run(); await env.DB.prepare('DELETE FROM sessions WHERE user_id=? AND household_id=?').bind(+body.userId, env.HID).run(); await env.DB.prepare('DELETE FROM users WHERE id=? AND household_id=?').bind(+body.userId, env.HID).run(); return json({ ok: true }); }
+        if (sub === 'revoke' && method === 'POST') { const short = String(body.id || ''); if (!short) return err('Which device?'); await env.DB.prepare('DELETE FROM push_subs WHERE substr(session_id,1,16)=? AND household_id=?').bind(short, env.HID).run(); await env.DB.prepare('DELETE FROM sessions WHERE substr(id,1,16)=? AND household_id=?').bind(short, env.HID).run(); return json({ ok: true }); }
+        if (sub === 'revoke-others' && method === 'POST') { await env.DB.prepare('DELETE FROM push_subs WHERE session_id IS NOT NULL AND session_id != ? AND household_id=?').bind(session?.id || '', env.HID).run(); await env.DB.prepare('DELETE FROM sessions WHERE id != ? AND household_id=?').bind(session?.id || '', env.HID).run(); return json({ ok: true }); }
         if (sub === 'device-kind' && method === 'POST') { if (!session) return err('not signed in'); const kind = body.kind === 'display' ? 'display' : 'parent'; await env.DB.prepare('UPDATE sessions SET kind=?, label=? WHERE id=? AND household_id=?').bind(kind, (kind === 'display' ? 'Kitchen display · ' : '') + A.deviceLabel(req), session.id, env.HID).run(); return json({ ok: true }); }
         if (sub === 'password' && method === 'POST') { if (!session?.user_id) return err('Sign in on this device first'); const u = await env.DB.prepare('SELECT * FROM users WHERE id=? AND household_id=?').bind(session.user_id, env.HID).first(); if (!(await A.verifyPassword(String(body.old || ''), u))) return err('Your current password is not right'); const bad = A.passwordProblem(body.password); if (bad) return err(bad); const h = await A.hashPassword(body.password); await env.DB.prepare('UPDATE users SET pw_hash=?, pw_salt=?, pw_iter=? WHERE id=? AND household_id=?').bind(h.hash, h.salt, h.iter, u.id, env.HID).run(); await env.DB.prepare('DELETE FROM sessions WHERE user_id=? AND id != ? AND household_id=?').bind(u.id, session.id, env.HID).run(); return json({ ok: true }); }
         if (sub === 'recovery' && method === 'POST') { const code = A.recoveryCode(); await setSetting(env, 'recovery', { hash: await A.sha256hex('rc:' + code), created_at: nowIso() }); return json({ ok: true, recoveryCode: code }); }
+        if (sub === 'phones' && method === 'GET') return json((await env.DB.prepare('SELECT p.id, p.who, p.created_at, p.last_ok, p.session_id IS NOT NULL AS signed_in, s.label FROM push_subs p LEFT JOIN sessions s ON s.id = p.session_id AND s.household_id = p.household_id WHERE p.household_id=? ORDER BY p.id').bind(env.HID).all()).results);
+        if (sub === 'phone-remove' && method === 'POST') { await env.DB.prepare('DELETE FROM push_subs WHERE id=? AND household_id=?').bind(+body.id, env.HID).run(); return json({ ok: true }); }
         if (sub === 'gate' && method === 'GET') return json(await getGate(env));
         if (sub === 'gate' && method === 'POST') { const code = String(body.code || '').trim(); if (!/^\d{4,8}$/.test(code)) return err('4 to 8 digits'); await setSetting(env, 'gate', { code, hash: await sha('fb:' + code) }); return json({ ok: true }); }
-        if (sub === 'config' && method === 'PUT') { const next = { ...cfg, ...body.config, pin: body.config?.pin || cfg.pin }; await saveConfig(env, next); return json({ ok: true }); }
+        if (sub === 'config' && method === 'PUT') {
+          // With base (what the screen loaded), only what that screen changed is saved, so edits made elsewhere stay.
+          const next = body.base && typeof body.base === 'object' ? mergeChanges(cfg, body.base, body.config || {}) : { ...cfg, ...body.config };
+          if (!next.pin) next.pin = cfg.pin;
+          if (P.payDayOf(next, today) !== P.payDayOf(cfg, today) || cfg.week?.payDayFrom) { const paid = Object.keys(await getSetting(env, 'paychecks', {})).length || (await env.DB.prepare("SELECT 1 AS x FROM ledger WHERE kind='payout' AND household_id=? LIMIT 1").bind(env.HID).first()); P.withPayDayChange(cfg, next, today, { now: !paid }); } await saveConfig(env, next); return json({ ok: true, config: next });
+        }
         if (sub === 'refresh') { const r = await getEvents(env, cfg, req, true); await cached(env, wxKey(cfg), 0, () => H.fetchWeather(cfg), true).catch(() => {}); return json({ ok: true, status: r.status }); }
-        if (sub === 'payout') { await env.DB.prepare('INSERT INTO ledger(week,kid,kind,amount,stars,note,created_at,household_id) VALUES(?,?,?,?,?,?,?,?)').bind(body.week, body.kid, 'payout', P.num(body.amount, 0), 0, body.note || null, nowIso(), env.HID).run(); if (body.jar) await env.DB.prepare('INSERT INTO ledger(week,kid,kind,amount,stars,note,created_at,household_id) VALUES(?,?,?,?,?,?,?,?)').bind(body.week, body.kid, 'jar', P.num(body.jar, 0), 0, 'to savings jar', nowIso(), env.HID).run(); return json({ ok: true }); }
+        if (sub === 'payout') { if (!body.week || !body.kid) return err('Which week and which kid?');
+          // A week is paid once, whether the kid collected it on the board or a grown-up marks it here (a double tap included).
+          const r = await env.DB.prepare("INSERT INTO ledger(week,kid,kind,amount,stars,note,created_at,household_id) SELECT ?,?,'payout',?,0,?,?,? WHERE NOT EXISTS (SELECT 1 FROM ledger WHERE household_id=? AND kid=? AND kind='payout' AND week=?)").bind(body.week, body.kid, P.num(body.amount, 0), body.note || null, nowIso(), env.HID, env.HID, body.kid, body.week).run();
+          if (!r.meta?.changes) return err('That week is already paid', 409); if (body.jar) await env.DB.prepare('INSERT INTO ledger(week,kid,kind,amount,stars,note,created_at,household_id) VALUES(?,?,?,?,?,?,?,?)').bind(body.week, body.kid, 'jar', P.num(body.jar, 0), 0, 'to savings jar', nowIso(), env.HID).run(); return json({ ok: true }); }
         if (sub === 'grant') { await env.DB.prepare('INSERT INTO ledger(week,kid,kind,amount,stars,note,created_at,household_id) VALUES(?,?,?,?,?,?,?,?)').bind(today, body.kid, 'grant', 0, P.num(body.stars, 0), body.note || null, nowIso(), env.HID).run(); if (body.itemId) { const w = await getSetting(env, 'wardrobe:' + body.kid, { owned: [], look: {} }); if (!w.owned.includes(body.itemId)) w.owned.push(body.itemId); await setSetting(env, 'wardrobe:' + body.kid, w); } return json({ ok: true }); }
         if (sub === 'history') { const l = await env.DB.prepare('SELECT * FROM ledger WHERE household_id=? ORDER BY created_at DESC LIMIT 200').bind(env.HID).all(); const c = await env.DB.prepare("SELECT date, kid, SUM(points) AS stars, COUNT(*) AS n FROM checks WHERE date>=? AND household_id=? GROUP BY date, kid ORDER BY date DESC").bind(addDaysYmd(today, -84), env.HID).all(); return json({ ledger: l.results, days: c.results }); }
         if (sub === 'log') return json((await env.DB.prepare('SELECT * FROM events_log WHERE household_id=? ORDER BY id DESC LIMIT 200').bind(env.HID).all()).results);

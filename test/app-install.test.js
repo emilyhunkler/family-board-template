@@ -58,7 +58,8 @@ test('the offer only shows on a device that doesn’t have the app yet', () => {
   assert.match(js, /addEventListener\('appinstalled'[^\n]*mem\.set\('fb-app', 'installed'\)/, 'the browser saying it installed is remembered');
   assert.match(js, /getInstalledRelatedApps/, 'Chrome is asked whether the app is installed');
   const app = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
-  assert.match(app, /useState\(false\);\s*useEffect\(\(\) => \{ if \(nudgeWanted\(\)\) hasAppAlready\(\)/, 'the offer waits for the check, so it never flashes up');
+  assert.match(app, /useState\(false\);[^\n]*\n[^\n]*\n\s*useEffect\(\(\) => \{ if \(!reopened\.current && nudgeWanted\(\)\) hasAppAlready\(\)/, 'the offer waits for the check, so it never flashes up');
+  assert.match(app, /onClose=\$\{\(\) => \{ setAppOpen\(false\); setNudge\(false\); reopened\.current = true; \}\}/, 'once the steps were opened, the banner stays away for that visit');
 });
 
 test('the manifest makes the board installable, full screen', () => {
