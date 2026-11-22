@@ -8,7 +8,7 @@ date when it goes live (see RELEASING.md).
 
 ### For families
 - Buying in the wardrobe works again. A kid's 👕 Wardrobe button now always opens that kid's own wardrobe. Before, it stayed on whichever kid was open first, so Lydia could end up shopping with Ivette's stars and be told she needed more.
-- Tapping something not owned yet opens a calm card on the board itself: "Use 6 stars on Big bow?", with how many stars will be left and a reminder that saving up is a smart choice too, and two big buttons, "Use 6 stars" and "Save my stars". It used to use the browser's own yes/no box, which an iPad can hide or skip. Items a kid can afford have a gold price tag; for the rest, the card says plainly how many more stars to go.
+- Tapping something not owned yet opens a calm card on the board itself with just the facts, like "Big bow costs 6 stars" and how many stars the kid has, and two big buttons, "Get it" and "Keep saving". It used to use the browser's own yes/no box, which an iPad can hide or skip. Items a kid can afford have a gold price tag; for the rest, the card says plainly how many more stars to go.
 - Feedback: one press of Send sends one note. The button says "Sending…" until it's done, then "Thank you! It's sent." The same note sent again within 10 minutes isn't saved twice.
 
 ## 2026-11-22

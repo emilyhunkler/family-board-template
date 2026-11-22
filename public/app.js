@@ -371,7 +371,7 @@ function Wardrobe({ b, want, refresh, setPage }) {
   const have = (it) => shopState(it, k).status === 'have';
   const save = async (lk) => { setLook(lk); await api('/api/wardrobe/look', { kid: k.id, look: lk }); refresh(); };
   const wear = (it) => { const lk = { ...look }; if (TOGGLES.includes(it.kind) && lk[it.kind] === it.value) delete lk[it.kind]; else lk[it.kind] = it.value; save(lk); };
-  // Anything not theirs yet opens a calm card on the board: "Use 6 stars on Big bow?" or "Save my stars", or why not yet.
+  // Anything not theirs yet opens a calm card on the board: "Big bow costs 6 stars", Get it or Keep saving, or why not yet.
   const pick = (it) => { if (have(it)) return wear(it); chime('ok'); setBuying({ it, kid: k.id }); };
   const buy = async () => { const it = buying?.it; if (!it || busyRef.current) return; busyRef.current = true; setBusy(true);
     try { await api('/api/wardrobe/buy', { kid: buying.kid, itemId: it.id }); chime('win'); confetti(); toast(`Enjoy your ${it.label.toLowerCase()}!`); setBuying(null); wear(it); }

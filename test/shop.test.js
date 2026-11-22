@@ -13,8 +13,8 @@ const bow = { id: 'x-bow', kind: 'extra', label: 'Big bow', value: '🎀', cost:
 test('six stars buys a six-star item, with nothing left over', () => {
   assert.deepEqual(shopState(bow, kid(6)), { status: 'buy', left: 0 });
   const w = shopWords(bow, kid(6));
-  assert.equal(w.title, 'Use 6 stars on Big bow?'); assert.match(w.text, /After this, ★ 0 left\. Saving up is a smart choice too\./);
-  assert.equal(w.yes, 'Use 6 stars'); assert.equal(w.no, 'Save my stars');
+  assert.equal(w.title, 'Big bow costs 6 stars'); assert.equal(w.text, 'Ivette has ★ 6.');
+  assert.equal(w.yes, 'Get it'); assert.equal(w.no, 'Keep saving');
 });
 
 test('not enough stars says how many more, in plain words', () => {
