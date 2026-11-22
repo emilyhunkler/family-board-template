@@ -7,7 +7,7 @@ date when it goes live (see RELEASING.md).
 ## Unreleased
 
 ### For families
-- The sign-up page shows a short "How setup goes" 1-2-3 before the form: make your account, tell us about your crew, put it on the kitchen screen. New families know what to expect before they start.
+- A friendlier, shorter sign-up page: three small steps (sign up, add your crew, put it in the kitchen), a note that any phone or computer works and no tablet is needed yet, and just three boxes before Continue with Google.
 
 ## 2026-11-22
 
