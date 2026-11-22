@@ -11,7 +11,14 @@ const googleIcon = '<svg width="20" height="20" viewBox="0 0 48 48" aria-hidden=
 
 export function signupPage({ site, google, msg = '', v = {} }) {
   const f = (k) => escHtml(v[k] || '');
-  return page('Create your board', `<h1>Let's get your family organized 👋</h1><p>${escHtml(site)} keeps your family's plans, chores and wins in one happy place. We're in early testing, so you'll need an invite code. Getting set up takes about five minutes.</p>${msg ? `<p class="e">${escHtml(msg)}</p>` : ''}
+  return page('Create your board', `<h1>Let's get your family organized 👋</h1><p>${escHtml(site)} keeps your family's plans, chores and wins in one happy place. We're in early testing, so you'll need an invite code.</p>${msg ? `<p class="e">${escHtml(msg)}</p>` : ''}
+  <style>.how{list-style:none;padding:0;margin:14px 0 4px;counter-reset:how}.how li{counter-increment:how;position:relative;padding:0 0 12px 44px;font-size:15px;color:#3b4a66}.how li::before{content:counter(how);position:absolute;left:0;top:0;width:32px;height:32px;border-radius:50%;background:#eaf7ee;color:#1f3a5f;font-weight:900;display:flex;align-items:center;justify-content:center}.how b{display:block;color:#1f2a44}</style>
+  <h2 style="font-size:17px;margin:16px 0 0">How setup goes</h2>
+  <ol class="how">
+  <li><b>Make your account</b>Your invite code, your family name, and how you'll sign in. About a minute.</li>
+  <li><b>Tell us about your crew</b>Add the grown-ups and kids, pick a sidekick and a few chores, and choose a grown-ups' PIN. Your calendar can wait. About five minutes.</li>
+  <li><b>Put it on the kitchen screen</b>Open the board on your tablet and it shows a short code. Type that code on your phone and the screen joins your family.</li>
+  </ol>
   <form method="post" action="/auth/signup"><input type="hidden" name="zone" id="z" value="${f('zone')}">
   <label for="c">Invite code</label><input id="c" name="code" type="text" autocomplete="off" autocapitalize="characters" required value="${f('code')}">
   <label for="fam">Your family name</label><input id="fam" name="family" type="text" placeholder="Like The Garcias" maxlength="40" required value="${f('family')}">
