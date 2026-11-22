@@ -12,7 +12,9 @@ const bow = { id: 'x-bow', kind: 'extra', label: 'Big bow', value: '🎀', cost:
 
 test('six stars buys a six-star item, with nothing left over', () => {
   assert.deepEqual(shopState(bow, kid(6)), { status: 'buy', left: 0 });
-  assert.match(shopWords(bow, kid(6)).text, /Ivette will have ★ 0 left/);
+  const w = shopWords(bow, kid(6));
+  assert.equal(w.title, 'Use 6 stars on Big bow?'); assert.match(w.text, /After this, ★ 0 left\. Saving up is a smart choice too\./);
+  assert.equal(w.yes, 'Use 6 stars'); assert.equal(w.no, 'Save my stars');
 });
 
 test('not enough stars says how many more, in plain words', () => {
@@ -33,7 +35,7 @@ test('free and owned items are just worn; level and prize items say why not', ()
 test('the wardrobe asks on the board, not with the browser yes/no box', () => {
   const ward = app.slice(app.indexOf('function Wardrobe('), app.indexOf('const AISLES'));
   assert.ok(!/confirm\(/.test(ward), 'no window.confirm in the wardrobe');
-  assert.match(ward, /Yes, buy it!/);
+  assert.ok(!/buy it!/i.test(ward), 'no shopping push on the card');
   assert.match(ward, /busyRef\.current/, 'one press buys once');
 });
 

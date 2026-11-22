@@ -371,17 +371,17 @@ function Wardrobe({ b, want, refresh, setPage }) {
   const have = (it) => shopState(it, k).status === 'have';
   const save = async (lk) => { setLook(lk); await api('/api/wardrobe/look', { kid: k.id, look: lk }); refresh(); };
   const wear = (it) => { const lk = { ...look }; if (TOGGLES.includes(it.kind) && lk[it.kind] === it.value) delete lk[it.kind]; else lk[it.kind] = it.value; save(lk); };
-  // Anything not theirs yet opens a card on the board: "Buy it?" with big Yes and No, or why not yet.
+  // Anything not theirs yet opens a calm card on the board: "Use 6 stars on Big bow?" or "Save my stars", or why not yet.
   const pick = (it) => { if (have(it)) return wear(it); chime('ok'); setBuying({ it, kid: k.id }); };
   const buy = async () => { const it = buying?.it; if (!it || busyRef.current) return; busyRef.current = true; setBusy(true);
-    try { await api('/api/wardrobe/buy', { kid: buying.kid, itemId: it.id }); chime('win'); confetti(); toast(`${it.label} is yours!`); setBuying(null); wear(it); }
+    try { await api('/api/wardrobe/buy', { kid: buying.kid, itemId: it.id }); chime('win'); confetti(); toast(`Enjoy your ${it.label.toLowerCase()}!`); setBuying(null); wear(it); }
     catch (e) { toast(e.message || 'That did not work. Try again?'); }
     finally { busyRef.current = false; setBusy(false); } };
   const card = buying && buying.kid === k.id ? (() => { const st = shopState(buying.it, k); const w = shopWords(buying.it, k); const it = buying.it;
     return html`<div class="ov" onClick=${() => !busy && setBuying(null)}><div class="sheet buysheet" onClick=${(e) => e.stopPropagation()}>
       <div class="buyitem"><${Avatar} kid=${k} look=${{ ...look, [it.kind]: it.value }} size="140px" /></div>
       <h3>${w.title}</h3><p class="buytext">${w.text}</p>
-      <div class="btns">${st.status === 'buy' ? html`<button class="pill big" disabled=${busy} onClick=${buy}>${busy ? 'Buying…' : `Yes, buy it! ★ ${it.cost}`}</button><button class="pill lite big" disabled=${busy} onClick=${() => setBuying(null)}>Not now</button>`
+      <div class="btns">${st.status === 'buy' ? html`<button class="pill big" disabled=${busy} onClick=${buy}>${busy ? 'One moment…' : w.yes}</button><button class="pill lite big" disabled=${busy} onClick=${() => setBuying(null)}>${w.no}</button>`
         : html`<button class="pill big" onClick=${() => setBuying(null)}>OK</button>`}</div></div></div>`; })() : '';
   const items = cat.filter((i) => i.kind === tab);
   return html`<div class="page"><div class="wkhead"><h2>${k.name}'s wardrobe</h2><div class="seg">${b.kids.map((x) => html`<button class=${x.id === kid ? 'on' : ''} onClick=${() => setKid(x.id)}>${x.name}</button>`)}</div><div class="coins" style="margin-left:auto">★ ${k.wardrobe.balance}<span>to spend</span></div></div>

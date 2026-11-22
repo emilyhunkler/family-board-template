@@ -1,7 +1,7 @@
 // What happens when a kid taps a wardrobe item: wear it, buy it, or hear plainly why not yet. No imports, so the
 // tests can run it in Node.
 //   have    already theirs (or free): wear it
-//   buy     enough stars: ask "Buy it?" on the board itself (iPads in kiosk mode can swallow the browser's own
+//   buy     enough stars: ask "Use 6 stars on Big bow?" on the board itself (iPads in kiosk mode can swallow the browser's own
 //           yes/no box, which made buying look broken)
 //   short   not enough stars yet: `need` says how many more
 //   level   needs a higher level first
@@ -17,10 +17,11 @@ export function shopState(it, kid) {
 }
 
 const stars = (n) => `${n} star${n === 1 ? '' : 's'}`;
-// The words on the "Buy it?" card, short enough for a 7-year-old.
+// The words on the "Use my stars?" card, short enough for a 7-year-old.
 export function shopWords(it, kid) {
   const s = shopState(it, kid); const bal = kid?.wardrobe?.balance || 0; const name = kid?.name || 'You';
-  if (s.status === 'buy') return { title: `Buy ${it.label}?`, text: `It costs ★ ${it.cost}. ${name} has ★ ${bal}, so ${name} will have ★ ${s.left} left.` };
+  // Calm, not a shopping push: what it costs, what's left, and saving is a fine answer too.
+  if (s.status === 'buy') return { title: `Use ${stars(it.cost)} on ${it.label}?`, text: `${name} has ★ ${bal}. After this, ★ ${s.left} left. Saving up is a smart choice too.`, yes: `Use ${stars(it.cost)}`, no: 'Save my stars' };
   if (s.status === 'short') return { title: `${stars(s.need)} to go!`, text: `${it.label} costs ★ ${it.cost}. ${name} has ★ ${bal}. Do a job or a quest to earn ${s.need === 1 ? 'one more' : 'a few more'}!` };
   if (s.status === 'level') return { title: `Reach level ${it.minLevel}`, text: `${it.label} unlocks at level ${it.minLevel}. Keep earning stars!` };
   if (s.status === 'prize') return { title: 'A prize item', text: `${it.label} comes with a weekly prize.` };
