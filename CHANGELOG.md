@@ -11,6 +11,16 @@ date when it goes live (see RELEASING.md).
 - Tapping something not owned yet opens a card on the board itself with big buttons: "Yes, buy it! ★ 6" and "Not now", plus how many stars will be left. It used to use the browser's own yes/no box, which an iPad can hide or skip. Items a kid can afford have a gold price tag; for the rest, the card says plainly how many more stars to go.
 - Feedback: one press of Send sends one note. The button says "Sending…" until it's done, then "Thank you! It's sent." The same note sent again within 10 minutes isn't saved twice.
 
+## 2026-11-22
+
+### For families
+- New families can find sign-up at a glance. The sign-in page now has a big "Create your family's board" button under the sign-in, where before it was a small link at the very bottom that was easy to miss.
+- A sign-up link can carry the invite code, like `/auth/signup?code=SPRING-25`, so the code is already filled in.
+
+### Behind the scenes
+- The site overview (`/owner`) lists a ready-made sign-up link for each invite code.
+- The test copy takes the invite code `TEST-FAMILY`, so new-family sign-up can be tried there.
+
 ## 2026-11-20
 
 ### For families

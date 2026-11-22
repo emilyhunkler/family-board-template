@@ -118,6 +118,9 @@ test('a new family signs up, runs setup, and pairs a kitchen screen', async (t) 
   // Signed out: the site's name and a sign-up link, never the first family's name.
   const home = await go('new', '/');
   assert.match(home.text, /Shared Site/); assert.doesNotMatch(home.text, /The Firsts/); assert.match(home.text, /\/auth\/signup/); assert.match(home.text, /\/auth\/pair/);
+  assert.match(home.text, /class="btn2" href="\/auth\/signup">Create your family's board/, 'sign-up is a full button, easy to find');
+  // A link with the code in it fills the code in.
+  assert.match((await go('new', '/auth/signup?code=BETA2')).text, /name="code"[^>]*value="BETA2"/);
 
   // Wrong invite code, then a good one.
   const base = { family: 'The Newbies', person: 'Papa', email: 'new@example.com', password: 'pancakes on sunday', zone: 'America/Chicago', method: 'password' };
