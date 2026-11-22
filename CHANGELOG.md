@@ -6,6 +6,11 @@ date when it goes live (see RELEASING.md).
 
 ## Unreleased
 
+### For families
+- Buying in the wardrobe works again. A kid's 👕 Wardrobe button now always opens that kid's own wardrobe. Before, it stayed on whichever kid was open first, so Lydia could end up shopping with Ivette's stars and be told she needed more.
+- Tapping something not owned yet opens a card on the board itself with big buttons: "Yes, buy it! ★ 6" and "Not now", plus how many stars will be left. It used to use the browser's own yes/no box, which an iPad can hide or skip. Items a kid can afford have a gold price tag; for the rest, the card says plainly how many more stars to go.
+- Feedback: one press of Send sends one note. The button says "Sending…" until it's done, then "Thank you! It's sent." The same note sent again within 10 minutes isn't saved twice.
+
 ## 2026-11-20
 
 ### For families
