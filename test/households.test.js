@@ -121,6 +121,7 @@ test('a new family signs up, runs setup, and pairs a kitchen screen', async (t) 
   assert.match(home.text, /class="btn2" href="\/auth\/signup">Create your family's board/, 'sign-up is a full button, easy to find');
   // A link with the code in it fills the code in.
   assert.match((await go('new', '/auth/signup?code=BETA2')).text, /name="code"[^>]*value="BETA2"/);
+  assert.match((await go('new', '/auth/signup')).text, /Sign up[\s\S]*Add your crew[\s\S]*Put it in the kitchen[\s\S]*No tablet needed yet/, 'sign-up sets expectations with three short steps');
 
   // Wrong invite code, then a good one.
   const base = { family: 'The Newbies', person: 'Papa', email: 'new@example.com', password: 'pancakes on sunday', zone: 'America/Chicago', method: 'password' };

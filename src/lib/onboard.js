@@ -11,16 +11,20 @@ const googleIcon = '<svg width="20" height="20" viewBox="0 0 48 48" aria-hidden=
 
 export function signupPage({ site, google, msg = '', v = {} }) {
   const f = (k) => escHtml(v[k] || '');
-  return page('Create your board', `<h1>Let's get your family organized 👋</h1><p>${escHtml(site)} keeps your family's plans, chores and wins in one happy place. We're in early testing, so you'll need an invite code. Getting set up takes about five minutes.</p>${msg ? `<p class="e">${escHtml(msg)}</p>` : ''}
+  const step = (icon, title, note) => `<li><span class="si" aria-hidden="true">${icon}</span><span><b>${title}</b><small>${note}</small></span></li>`;
+  return page('Create your board', `<style>.steps{list-style:none;padding:0;margin:6px 0 8px}.steps li{display:flex;align-items:center;gap:12px;margin:0 0 10px}.si{width:40px;height:40px;flex:none;border-radius:50%;background:#eaf7ee;display:flex;align-items:center;justify-content:center;font-size:20px}.steps b{display:block;font-size:15px;color:#1f2a44}.steps small{display:block;font-size:13px;color:#6b7280;font-weight:600}.anyd{font-size:13px;color:#6b7280;margin:0 0 6px}.alt{text-align:center;margin-top:12px;font-size:14px}.alt summary{font-weight:700;color:#1f3a5f;list-style:none}.alt summary::-webkit-details-marker{display:none}.alt[open]{text-align:left}</style>
+  <h1>Let's get your family organized 👋</h1><p style="font-size:15px">Everyone's day, on the kitchen tablet. Fewer reminders from you, more time together.</p>${msg ? `<p class="e">${escHtml(msg)}</p>` : ''}
+  <ul class="steps">${step('🙌', 'Sign up', 'One minute')}${step('👨‍👩‍👧', 'Add your crew', "We'll guide you. About five minutes")}${step('🏡', 'Put it in the kitchen', "Link your tablet whenever you're ready")}</ul>
+  <p class="anyd">Start on any phone or computer. No tablet needed yet.</p>
   <form method="post" action="/auth/signup"><input type="hidden" name="zone" id="z" value="${f('zone')}">
-  <label for="c">Invite code</label><input id="c" name="code" type="text" autocomplete="off" autocapitalize="characters" required value="${f('code')}">
-  <label for="fam">Your family name</label><input id="fam" name="family" type="text" placeholder="Like The Garcias" maxlength="40" required value="${f('family')}">
-  <label for="me">What the kids call you</label><input id="me" name="person" type="text" placeholder="Like Mom, Dad or Grandpa" maxlength="30" required value="${f('person')}">
-  ${google ? `<button class="g" name="method" value="google">${googleIcon}Continue with Google</button><details><summary>Use an email and password instead</summary>` : ''}
+  <label for="c">Invite code</label><input id="c" name="code" type="text" autocomplete="off" autocapitalize="characters" placeholder="From whoever invited you" required value="${f('code')}">
+  <label for="fam">Family name</label><input id="fam" name="family" type="text" placeholder="The Garcias" maxlength="40" required value="${f('family')}">
+  <label for="me">What do the kids call you?</label><input id="me" name="person" type="text" placeholder="Mom, Dad, Grandpa" maxlength="30" required value="${f('person')}">
+  ${google ? `<button class="g" name="method" value="google" style="background:#1f3a5f;color:#fff;border-color:#1f3a5f"><span style="background:#fff;border-radius:50%;width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center">${googleIcon}</span>Continue with Google</button><details class="alt"><summary>or use an email instead</summary>` : ''}
   <label for="e">Email</label><input id="e" name="email" type="email" autocomplete="username" value="${f('email')}">
   <label for="p">Password</label><input id="p" name="password" type="password" autocomplete="new-password" minlength="10" placeholder="At least 10 characters">
-  <button name="method" value="password">Let's go</button>${google ? '</details>' : ''}</form>
-  <p style="margin-top:12px">By creating a board you agree to how we handle your family's information, explained on the <a href="/privacy">privacy page</a>.</p><p class="more"><a href="/">Already have a board? Sign in</a></p>
+  <button name="method" value="password">Create our board</button>${google ? '</details>' : ''}</form>
+  <p style="margin-top:14px;font-size:12px;text-align:center">By signing up you agree to our <a href="/privacy">privacy page</a>.</p><p class="more"><a href="/">Already have a board? Sign in</a></p>
   <script>try{document.getElementById('z').value||(document.getElementById('z').value=Intl.DateTimeFormat().resolvedOptions().timeZone)}catch(e){}</script>`, msg ? 400 : 200);
 }
 
