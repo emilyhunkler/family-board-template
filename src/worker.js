@@ -724,6 +724,10 @@ export default {
       if (path === '/api/units' && method === 'POST') { cfg.weather.units = body.units === 'celsius' ? 'celsius' : 'fahrenheit'; await saveConfig(env, cfg); return json({ ok: true, units: cfg.weather.units }); }
       if (path === '/api/feedback' && method === 'POST') {
         const text = String(body.text || '').trim(); if (!text) return err('say something first');
+        // The same note again within 10 minutes is the same note: say it's sent, but save no copy, make no new
+        // issue, and don't count it toward the day's limit.
+        const same = await env.DB.prepare('SELECT id, issue_url FROM feedback WHERE household_id=? AND text=? AND created_at>? ORDER BY id DESC LIMIT 1').bind(env.HID, text, new Date(Date.now() - 10 * 60000).toISOString()).first();
+        if (same) return json({ ok: true, issueUrl: same.issue_url || null, already: true });
         const wait = await A.check(env, 'fb:' + env.HID, 20); if (wait) return err(`That's a lot of feedback for one day. Try again in ${wait} minutes.`, 429); await A.fail(env, 'fb:' + env.HID, 24 * 60 * 60);
         // A family that linked its own repo gets issues there, word for word. Otherwise feedback goes to the
         // site's public repo (FEEDBACK_REPO) with the board's names removed and no family named.

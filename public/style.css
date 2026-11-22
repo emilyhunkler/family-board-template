@@ -105,6 +105,11 @@ h1,h2,h3,h4{font-family:var(--head);margin:0;line-height:1.1}
 .item small{font-size:11px;font-weight:900;color:var(--muted)}.item.sel{border-color:var(--navy)}.item.lock{background:#f1eee8}.item.lock .e{opacity:.35}
 .item .lk{position:absolute;bottom:6px;right:6px;font-size:10px;background:var(--navy);color:var(--sun);border-radius:999px;padding:3px 8px;font-weight:900;font-family:var(--head)}
 .item .sw{width:40px;height:40px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 1px #ddd}
+/* Items a kid has enough stars for get a gold price tag; the rest stay grey. The "Buy it?" card is the board's own,
+   with big buttons, so it works on an iPad in kiosk mode. */
+.item.lock.afford{background:#fff8e1}.item.lock.afford .e{opacity:1}.item.lock.afford .lk{background:var(--sun);color:var(--navy)}
+.buysheet{width:min(440px,100%);text-align:center}.buysheet h3{justify-content:center;font-size:28px}.buysheet .btns{justify-content:center;flex-wrap:wrap}
+.buyitem{display:flex;justify-content:center;margin:6px 0 10px}.buytext{font-weight:800;color:var(--ink2);font-size:18px;margin:6px 0 14px}
 .coins{display:inline-flex;align-items:center;gap:8px;font-family:var(--head);font-weight:800;font-size:18px;background:#fff3c4;border-radius:999px;padding:6px 16px}
 .coins span{color:#6b4a00;font-weight:800;font-size:12px;font-family:var(--body)}
 /* groceries */

@@ -43,6 +43,8 @@ html.dark .item.sel{border-color:#7ea6d6}
 html.dark .item.lock{background:#393223}
 html.dark .item .lk{background:#3b6496}
 html.dark .item .sw{border:3px solid #1b222d}
+html.dark .item.lock.afford{background:#3a331e}
+html.dark .item.lock.afford .lk{background:var(--sun)}
 html.dark .coins{background:#453e23}
 html.dark .coins span{color:#ebd9b0}
 html.dark .gi .bx{background:#1b222d}

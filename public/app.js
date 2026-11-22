@@ -7,6 +7,7 @@ import { TRIVIA, JOKES, FACTS, WOULD_YOU_RATHER, GEAR } from './fun.js';
 import { BrainCard } from './brain.js';
 import { AppSheet, AppNudge, nudgeWanted, hasAppAlready, reopenGuide, inApp } from './install.js';
 import { ideaOfDay, doneThisWeek, playWatch, isPlayOnly, goPlayWords, timesUpWords } from './ideas.js';
+import { shopState, shopWords } from './shop.js';
 export const html = htm.bind(h);
 
 // ---------- helpers ----------
@@ -359,17 +360,29 @@ const variants = (n) => Array.from({ length: n }, (_, i) => 'variant' + String(i
 export const SKINS = ['ffdbb4', 'f2d3b1', 'e8c1a0', 'ecad80', 'c68e5f', '9e5622', '763900', '5a3418']; const EYES = variants(26); const MOUTHS = variants(30); const BROWS = variants(15);
 const FEATURES = [['', 'Plain', '🙂'], ['blush', 'Blush', '🌸'], ['freckles', 'Freckles', '✨'], ['birthmark', 'Beauty mark', '•'], ['mustache', 'Silly mustache', '🥸']];
 const TOGGLES = ['glasses', 'earrings', 'pet', 'extra', 'gear'];
-function Wardrobe({ b, kidId, refresh, setPage }) {
-  const [kid, setKid] = useState(kidId || b.kids[0].id); const k = b.kids.find((x) => x.id === kid) || b.kids[0]; const [tab, setTab] = useState('hair');
+function Wardrobe({ b, want, refresh, setPage }) {
+  const [kid, setKid] = useState(want?.id || b.kids[0].id); const k = b.kids.find((x) => x.id === kid) || b.kids[0]; const [tab, setTab] = useState('hair');
+  // The wardrobe page stays open behind the others, so each time a kid's 👕 Wardrobe button opens it, it switches
+  // to that kid. (It used to stay on whoever was first, so a kid could end up shopping with a sister's stars.)
+  useEffect(() => { if (want?.id) setKid(want.id); }, [want]);
+  const [buying, setBuying] = useState(null); const [busy, setBusy] = useState(false); const busyRef = useRef(false);
   const [look, setLook] = useState({ ...k.avatar, ...k.wardrobe.look }); useEffect(() => setLook({ ...k.avatar, ...k.wardrobe.look }), [kid, b.now]);
   const cat = b.config.wardrobe.catalog; const owned = new Set(k.wardrobe.owned);
-  const have = (it) => it.cost === 0 && !it.minLevel && !it.prizeOnly || owned.has(it.id);
+  const have = (it) => shopState(it, k).status === 'have';
   const save = async (lk) => { setLook(lk); await api('/api/wardrobe/look', { kid: k.id, look: lk }); refresh(); };
-  const pick = async (it) => {
-    if (!have(it)) { if (it.prizeOnly) return toast('This one comes with a weekly prize'); if (it.minLevel && k.level.level < it.minLevel) return toast(`Reach level ${it.minLevel} to unlock`); if (k.wardrobe.balance < it.cost) return toast(`Need ${it.cost - k.wardrobe.balance} more stars`);
-      if (!confirm(`Unlock ${it.label} for ${it.cost} stars?`)) return; try { await api('/api/wardrobe/buy', { kid: k.id, itemId: it.id }); chime('win'); confetti(); } catch (e) { return toast(e.message); } }
-    const lk = { ...look }; if (TOGGLES.includes(it.kind) && lk[it.kind] === it.value) delete lk[it.kind]; else lk[it.kind] = it.value; save(lk);
-  };
+  const wear = (it) => { const lk = { ...look }; if (TOGGLES.includes(it.kind) && lk[it.kind] === it.value) delete lk[it.kind]; else lk[it.kind] = it.value; save(lk); };
+  // Anything not theirs yet opens a calm card on the board: "Big bow costs 6 stars", Get it or Keep saving, or why not yet.
+  const pick = (it) => { if (have(it)) return wear(it); chime('ok'); setBuying({ it, kid: k.id }); };
+  const buy = async () => { const it = buying?.it; if (!it || busyRef.current) return; busyRef.current = true; setBusy(true);
+    try { await api('/api/wardrobe/buy', { kid: buying.kid, itemId: it.id }); chime('win'); confetti(); toast(`Enjoy your ${it.label.toLowerCase()}!`); setBuying(null); wear(it); }
+    catch (e) { toast(e.message || 'That did not work. Try again?'); }
+    finally { busyRef.current = false; setBusy(false); } };
+  const card = buying && buying.kid === k.id ? (() => { const st = shopState(buying.it, k); const w = shopWords(buying.it, k); const it = buying.it;
+    return html`<div class="ov" onClick=${() => !busy && setBuying(null)}><div class="sheet buysheet" onClick=${(e) => e.stopPropagation()}>
+      <div class="buyitem"><${Avatar} kid=${k} look=${{ ...look, [it.kind]: it.value }} size="140px" /></div>
+      <h3>${w.title}</h3><p class="buytext">${w.text}</p>
+      <div class="btns">${st.status === 'buy' ? html`<button class="pill big" disabled=${busy} onClick=${buy}>${busy ? 'One moment…' : w.yes}</button><button class="pill lite big" disabled=${busy} onClick=${() => setBuying(null)}>${w.no}</button>`
+        : html`<button class="pill big" onClick=${() => setBuying(null)}>OK</button>`}</div></div></div>`; })() : '';
   const items = cat.filter((i) => i.kind === tab);
   return html`<div class="page"><div class="wkhead"><h2>${k.name}'s wardrobe</h2><div class="seg">${b.kids.map((x) => html`<button class=${x.id === kid ? 'on' : ''} onClick=${() => setKid(x.id)}>${x.name}</button>`)}</div><div class="coins" style="margin-left:auto">★ ${k.wardrobe.balance}<span>to spend</span></div></div>
     <div class="ward"><div class="card stage"><${Avatar} kid=${k} look=${look} size="260px" /><div style="display:flex;gap:8px"><button class="pill" onClick=${() => { chime('ok'); toast('Saved!'); setPage(k.id); }}>Done</button><button class="pill lite" onClick=${() => { const r = (l) => l[Math.random() * l.length | 0]; const lk = { ...look, eyes: r(EYES), mouth: r(MOUTHS), eyebrows: r(BROWS) }; const hairs = cat.filter((i) => i.kind === 'hair' && have(i)); lk.hair = hairs[Math.random() * hairs.length | 0].value; save(lk); }}>🎲 Surprise me</button></div></div>
@@ -380,10 +393,10 @@ function Wardrobe({ b, kidId, refresh, setPage }) {
           ${tab === 'brows' ? BROWS.map((e) => html`<button class=${'item' + (look.eyebrows === e ? ' sel' : '')} onClick=${() => save({ ...look, eyebrows: e })}><div class="zoomface" dangerouslySetInnerHTML=${{ __html: avatarSvg({ ...look, eyebrows: e }) }}></div></button>`) : ''}
           ${tab === 'mouth' ? MOUTHS.map((m) => html`<button class=${'item' + (look.mouth === m ? ' sel' : '')} onClick=${() => save({ ...look, mouth: m })}><div class="zoomface low" dangerouslySetInnerHTML=${{ __html: avatarSvg({ ...look, mouth: m }) }}></div></button>`) : ''}
           ${tab === 'face' ? FEATURES.map(([f, lab, e]) => html`<button class=${'item' + ((look.features || '') === f ? ' sel' : '')} onClick=${() => save({ ...look, features: f })}><div style="width:70px;height:70px" dangerouslySetInnerHTML=${{ __html: avatarSvg({ ...look, features: f }) }}></div><small>${lab}</small></button>`) : ''}
-          ${items.map((it) => { const ok = have(it); const on = look[it.kind] === it.value; return html`<button class=${'item' + (on ? ' sel' : '') + (ok ? '' : ' lock')} onClick=${() => pick(it)}>
+          ${items.map((it) => { const ok = have(it); const on = look[it.kind] === it.value; const st = ok ? 'have' : shopState(it, k).status; return html`<button class=${'item' + (on ? ' sel' : '') + (ok ? '' : ' lock') + (st === 'buy' ? ' afford' : '')} onClick=${() => pick(it)}>
             ${it.kind === 'hair' ? html`<div style="width:74px;height:74px" dangerouslySetInnerHTML=${{ __html: avatarSvg({ ...look, hair: it.value }) }}></div>` : it.kind === 'hairColor' || it.kind === 'bg' ? html`<span class="sw" style=${{ background: bgFill(it.value) }}></span>` : it.kind === 'glasses' || it.kind === 'earrings' ? html`<div style="width:74px;height:74px" dangerouslySetInnerHTML=${{ __html: avatarSvg({ ...look, [it.kind]: it.value }) }}></div>` : html`<span class="e">${it.value}</span>`}
             <small>${it.label}</small>${!ok ? html`<span class="lk">${it.prizeOnly ? 'Prize' : it.minLevel && k.level.level < it.minLevel ? 'Lv ' + it.minLevel : '★ ' + it.cost}</span>` : ''}</button>`; })}
-        </div></div></div></div>`;
+        </div></div></div>${card}</div>`;
 }
 
 const AISLES = ['produce', 'bakery', 'deli', 'meat', 'dairy', 'frozen', 'pantry', 'pets', 'household', 'personal', 'other'];
@@ -509,17 +522,22 @@ function MealSheet({ date, meal, onClose, refresh }) {
 // ---------- feedback ----------
 function FeedbackSheet({ b, page, onClose }) {
   const [who, setWho] = useState(() => { try { return localStorage.getItem('fb-who') || ''; } catch { return ''; } }); const [text, setText] = useState(''); const [rec, setRec] = useState(false); const [sent, setSent] = useState(null);
+  // One press sends one note: the Send button turns into "Sending…" until the board answers, and extra taps
+  // meanwhile do nothing. (Kids tapped Send again and again while it was slow, and each tap saved the note.)
+  const [sending, setSending] = useState(false); const sendingRef = useRef(false);
   const people = [...b.config.family.parents.map((p) => p.name), ...b.kids.map((k) => k.name)];
   const talk = async () => { if (rec) { dictate.stop && dictate.stop(); return; } setRec(true); const base = text ? text.trim() + ' ' : ''; const out = await dictate({ onInterim: (t) => setText(base + t) }); setRec(false); if (out) setText(base + out); };
   const micOff = () => { if (dictate.stop) dictate.stop(); };
   useEffect(() => micOff, []); // closing the sheet always turns the mic off
-  const send = async () => { if (!text.trim()) return; micOff(); try { const r = await api('/api/feedback', { text: text.trim(), from: who, page }); try { localStorage.setItem('fb-who', who); } catch {} chime('win'); setSent(r.issueUrl || true); } catch (e) { toast(e.message); } };
+  const send = async () => { if (!text.trim() || sendingRef.current) return; sendingRef.current = true; setSending(true); micOff();
+    try { const r = await api('/api/feedback', { text: text.trim(), from: who, page }); try { localStorage.setItem('fb-who', who); } catch {} chime('win'); setSent(r.issueUrl || true); }
+    catch (e) { toast(e.message); } finally { sendingRef.current = false; setSending(false); } };
   return html`<div class="ov" onClick=${onClose}><div class="sheet" style="width:560px" onClick=${(e) => e.stopPropagation()}><button class="close" onClick=${onClose}>×</button>
-    ${sent ? html`<h3>💛 Thank you!</h3><p style="font-weight:800;color:var(--ink2)">We got it. Ideas like yours make the board better for every family.${sent !== true ? html` <a target="_blank" href=${sent}>See your idea</a>` : ''}</p><div class="btns"><button class="pill" onClick=${onClose}>Done</button></div>` : html`
+    ${sent ? html`<h3>💛 Thank you! It’s sent.</h3><p style="font-weight:800;color:var(--ink2)">We got it, so there’s no need to send it again. Ideas like yours make the board better for every family.${sent !== true ? html` <a target="_blank" href=${sent}>See your idea</a>` : ''}</p><div class="btns"><button class="pill" onClick=${onClose}>Done</button></div>` : html`
     <h3>💬 Feedback</h3><p style="font-weight:800;color:var(--muted);margin:4px 0 10px">Something confusing, broken, or an idea? Say it or type it.</p>
     <div class="chips" style="margin:0 0 10px">${people.map((n) => html`<button class=${who === n ? 'on' : ''} style=${who === n ? { background: '#1f3a5f', color: '#fff' } : {}} onClick=${() => setWho(n)}>${n}</button>`)}</div>
     <textarea class="gbox" rows="4" style="resize:vertical;min-height:110px" value=${text} onInput=${(e) => setText(e.target.value)} placeholder=${rec ? 'Listening… talk now' : 'The week view should also show…'}></textarea>
-    <div class="btns"><button class=${'pill ' + (rec ? 'danger' : 'sun')} onClick=${talk}>${rec ? '⏹ Stop' : '🎙 Talk instead'}</button><button class="pill" disabled=${!text.trim()} onClick=${send}>Send</button></div>
+    <div class="btns"><button class=${'pill ' + (rec ? 'danger' : 'sun')} onClick=${talk}>${rec ? '⏹ Stop' : '🎙 Talk instead'}</button><button class="pill" disabled=${!text.trim() || sending} onClick=${send}>${sending ? 'Sending…' : 'Send'}</button></div>
     ${b.feedbackPublic ? html`<p style="font-size:12px;color:var(--ink2);font-weight:800;margin-top:10px">🌐 Ideas go on a public list so we can keep track of them. Names from your board are taken out first, but please leave out anything private.</p>` : ''}
     <p style="font-size:12px;color:var(--muted);font-weight:700;margin-top:10px">Tip: on the tablet say "Hey calendar, feedback" to open this with the mic already on.</p>`}</div></div>`;
 }
@@ -857,7 +875,7 @@ function App() {
   const goplayAsked = useRef(new URLSearchParams(location.search).has('goplay')); useEffect(() => { if (b && goplayAsked.current) { goplayAsked.current = false; startQuiet(true); } }, [b]);
   // Pages are located by where each one actually sits, so the tab bar always matches the page on screen.
   const pageEl = (i) => pagesRef.current?.children[i]; const goingTo = useRef(null);
-  const setPage = (p, kid) => { if (kid) setWardKid(kid); setPageState(p); const i = pageList.indexOf(p); const el = pagesRef.current; const t = pageEl(i); if (el && t) { goingTo.current = p; clearTimeout(goingTo.t); goingTo.t = setTimeout(() => { goingTo.current = null; }, 1500); el.scrollTo({ left: t.offsetLeft, behavior: 'smooth' }); } };
+  const setPage = (p, kid) => { if (kid) setWardKid({ id: kid, at: Date.now() }); setPageState(p); const i = pageList.indexOf(p); const el = pagesRef.current; const t = pageEl(i); if (el && t) { goingTo.current = p; clearTimeout(goingTo.t); goingTo.t = setTimeout(() => { goingTo.current = null; }, 1500); el.scrollTo({ left: t.offsetLeft, behavior: 'smooth' }); } };
   const onScroll = () => { const el = pagesRef.current; if (!el) return; let best = 0, gap = Infinity; [...el.children].forEach((c, i) => { const d = Math.abs(c.offsetLeft - el.scrollLeft); if (d < gap) { gap = d; best = i; } });
     const p = pageList[best]; if (goingTo.current) { if (p === goingTo.current && gap < 2) goingTo.current = null; return; } if (p && p !== page) setPageState(p); };
   // A resized window keeps showing the same page.
@@ -898,7 +916,7 @@ function App() {
       ${pageList.map((p) => { const k = b.kids.find((x) => x.id === p);
         if (k) return html`<${KidPage} key=${k.id} b=${b} k=${k} refresh=${refresh} setPage=${setPage} startTimer=${startTimer} withPin=${pinApi.withPin} openPay=${() => openPay(k)} />`;
         return { today: html`<${ParentToday} key="today" b=${b} refresh=${refresh} setPage=${setPage} openEv=${setEv} withPin=${pinApi.withPin} openParents=${(sec) => setParents(sec || true)} openKids=${() => setKidsOpen(true)} />`, week: html`<${Week} key="week" b=${b} openEv=${setEv} refresh=${refresh} withPin=${pinApi.withPin} />`, home: html`<${Home} key="home" b=${b} openEv=${setEv} setPage=${setPage} refresh=${refresh} />`,
-          wardrobe: html`<${Wardrobe} key="wardrobe" b=${b} kidId=${wardKid} refresh=${refresh} setPage=${setPage} />`, groceries: html`<${Groceries} key="groceries" b=${b} refresh=${refresh} display=${display} />` }[p]; })}
+          wardrobe: html`<${Wardrobe} key="wardrobe" b=${b} want=${wardKid} refresh=${refresh} setPage=${setPage} />`, groceries: html`<${Groceries} key="groceries" b=${b} refresh=${refresh} display=${display} />` }[p]; })}
     </div>
     <div class="dots">${pageList.map((p) => html`<button class=${p === page ? 'on' : ''} onClick=${() => setPage(p)} title=${p}></button>`)}</div>
     <div class="navbar">${pageList.filter((p) => !(parentView && p === 'wardrobe')).map((p) => { const k = b.kids.find((x) => x.id === p); const ic = { week: '📅', home: '🏠', today: '🏠', wardrobe: '👕', groceries: '🛒' }[p] || '⭐'; return html`<button class=${p === page ? 'on' : ''} onClick=${() => setPage(p)}>${k ? html`<${Avatar} kid=${k} size="24px" />` : html`<span>${ic}</span>`}${k ? k.name : p[0].toUpperCase() + p.slice(1)}</button>`; })}${parentView ? html`<button onClick=${() => setParents(true)}><span>⚙️</span>Settings</button>` : ''}</div>
