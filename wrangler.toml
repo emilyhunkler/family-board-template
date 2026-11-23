@@ -40,6 +40,11 @@ database_name = "family_board"
 database_id = "2e3a039c-a84c-4e3e-ae53-a216805612ba"
 migrations_dir = "migrations"
 
+# Family photos, in Cloudflare R2 file storage (one folder per family), so the shared database stays small.
+[[env.live.r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "family-board-photos"
+
 [env.live.triggers]
 crons = ["*/15 * * * *"]
 
@@ -66,6 +71,10 @@ database_name = "family_board_staging"
 # The test copy's own database, in the same Cloudflare account as the live board.
 database_id = "419c1dd6-e938-4bfa-9a13-44deb093b84d"
 migrations_dir = "migrations"
+
+[[env.staging.r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "family-board-photos-staging"
 
 [env.staging.triggers]
 crons = ["*/15 * * * *"]
