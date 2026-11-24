@@ -12,6 +12,9 @@ date when it goes live (see RELEASING.md).
 - Tapping something not owned yet opens a calm card on the board itself with just the facts, like "Big bow costs 6 stars" and how many stars the kid has, and two big buttons, "Get it" and "Keep saving". It used to use the browser's own yes/no box, which an iPad can hide or skip. Items a kid can afford have a gold price tag; for the rest, the card says plainly how many more stars to go.
 - Feedback: one press of Send sends one note. The button says "Sending…" until it's done, then "Thank you! It's sent." The same note sent again within 10 minutes isn't saved twice.
 
+### Behind the scenes
+- Family photos are kept in Cloudflare R2 file storage, one folder per family, instead of in the shared database, which was mostly photos. Photos added before are copied over a few at a time by the 15-minute job, each copy checked, with the original kept until it's cleared by hand (see RELEASING.md). Sites without R2 keep photos in the database as before.
+
 ## 2026-11-22
 
 ### For families

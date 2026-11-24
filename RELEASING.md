@@ -52,6 +52,19 @@ them. Every change goes: pull request → test copy → live, with a backup firs
   `-- reviewed: changes existing data` at the top of the migration.
 - New code must still work if its migration hasn't run yet.
 
+## Photos in file storage
+
+- Photos are kept in Cloudflare R2, one folder per family (`families/<family number>/`): the live board uses
+  the bucket `family-board-photos`, the test copy `family-board-photos-staging`. R2 has to be turned on once
+  in the Cloudflare dashboard (Storage & databases → R2 → Overview) and both buckets made before a deploy.
+- A copy of the template without an R2 bucket keeps photos in the database, as before.
+- Photos added before R2 are copied over by the 15-minute job, three at a time. Each copy is checked, and
+  the original stays in the database, so nothing is lost if a copy goes wrong.
+- Once every photo has a copy (`SELECT COUNT(*) FROM photos WHERE r2_key IS NULL` gives 0), the database
+  copies can be cleared to free the space: `UPDATE photos SET data='' WHERE r2_key IS NOT NULL`. Do this
+  only after checking the photos on the board, and note the restore point first. After that, rolling the
+  code back to a version from before R2 would show those photos as blank, so roll forward instead.
+
 ## If something goes wrong
 
 - **Code:** `npx wrangler rollback --env live` puts the last version back. Added tables don't bother older

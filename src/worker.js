@@ -12,6 +12,7 @@ import * as BK from './lib/bank.js';
 import * as APP from './lib/app.js';
 import * as ID from './lib/ideas.js';
 import { mergeChanges } from './lib/merge.js';
+import * as PH from './lib/photos.js';
 
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
 const err = (msg, status = 400, extra = {}) => json({ error: msg, ...extra }, status);
@@ -493,6 +494,7 @@ async function authRoute(env, req, path, cfg, userCount, session) {
           : t === 'sessions' ? rows.map((x) => ({ kind: x.kind, device: x.label, created_at: x.created_at, last_seen: x.last_seen }))
           : t === 'push_subs' ? rows.map((x) => ({ who: x.who, notifications: x.prefs, created_at: x.created_at }))
           : t === 'settings' ? rows.filter((x) => !AC.SECRET_SETTINGS.has(x.key)).map((x) => { let v; try { v = JSON.parse(x.value); } catch { v = x.value; } if (x.key === 'config' && v) delete v.pin; return { key: x.key, value: v }; })
+          : t === 'photos' ? await PH.exportRows(env, rows)
           : rows.map(({ household_id, ...r }) => r);
       }
       return new Response(JSON.stringify(out, null, 1), { headers: { 'content-type': 'application/json; charset=utf-8', 'content-disposition': `attachment; filename="board-export-${nowIso().slice(0, 10)}.json"`, 'cache-control': 'no-store' } });
@@ -500,6 +502,7 @@ async function authRoute(env, req, path, cfg, userCount, session) {
     if (req.method !== 'POST') return redirect('/account');
     const f = await formOf(req);
     if (String(f.name || '').trim() !== family.trim()) return AC.accountPage({ site: name, family, isOwner: isOwner(env, session), msg: "The name didn't match, so nothing was deleted." });
+    await PH.deleteFamilyPhotos(env);
     for (const t of AC.FAMILY_TABLES) await env.DB.prepare(`DELETE FROM ${t} WHERE household_id=?`).bind(env.HID).run();
     await env.DB.prepare('DELETE FROM households WHERE id=?').bind(env.HID).run();
     return withCookies(AC.deletedPage(name), A.clearCookie());
@@ -512,9 +515,10 @@ async function authRoute(env, req, path, cfg, userCount, session) {
       (SELECT MAX(s.last_seen) FROM sessions s WHERE s.household_id = h.id) AS last_seen,
       (SELECT COUNT(*) FROM checks c WHERE c.household_id = h.id) AS checks,
       (SELECT COUNT(*) FROM photos p WHERE p.household_id = h.id) AS photos,
-      (SELECT COALESCE(SUM(LENGTH(p.data)), 0) FROM photos p WHERE p.household_id = h.id) AS photo_bytes
+      (SELECT COALESCE(SUM(COALESCE(p.size, LENGTH(p.data))), 0) FROM photos p WHERE p.household_id = h.id) AS photo_bytes,
+      (SELECT COALESCE(SUM(LENGTH(p.data)), 0) FROM photos p WHERE p.household_id = h.id) AS photo_db_bytes
       FROM households h /* all-families: the owner's overview counts each family, never its contents */ ORDER BY h.id`).bind(nowIso()).all()).results;
-    const totals = families.reduce((t, x) => ({ grownups: t.grownups + x.grownups, devices: t.devices + x.devices, photo_bytes: t.photo_bytes + x.photo_bytes }), { grownups: 0, devices: 0, photo_bytes: 0 });
+    const totals = families.reduce((t, x) => ({ grownups: t.grownups + x.grownups, devices: t.devices + x.devices, photo_bytes: t.photo_bytes + x.photo_bytes, photo_db_bytes: t.photo_db_bytes + x.photo_db_bytes }), { grownups: 0, devices: 0, photo_bytes: 0, photo_db_bytes: 0 });
     const feedback = (await env.DB.prepare('SELECT household_id, text, created_at, issue_url FROM feedback /* all-families: feedback sent to the owner */ ORDER BY id DESC LIMIT 30').all()).results;
     return AC.ownerPage({ site: name, families, totals, feedback, signupOpen: signupCodes(env).length > 0, signupLinks: signupCodes(env).map((c) => `${origin}/auth/signup?code=${encodeURIComponent(c)}`) });
   }
@@ -592,6 +596,8 @@ export default {
     const nowD = new Date(); if (nowD.getUTCHours() === 9 && nowD.getUTCMinutes() < 15) ctx.waitUntil(env.DB.prepare('DELETE FROM tts_cache /* all-families: shared voice clips */ WHERE used_at < ?').bind(new Date(Date.now() - 90 * 86400000).toISOString()).run().catch(() => {}));
     // Start with a different family each run, so if one family's work ever runs out of time the others still get theirs.
     const order = [...ids]; const turn = Math.floor(Date.now() / (15 * 60000)) % order.length; order.push(...order.splice(0, turn));
+    // Copy a few older photos from the database into file storage, when it's set up. The originals stay put.
+    ctx.waitUntil(PH.moveSome(env).catch(() => {}));
     ctx.waitUntil((async () => { for (const id of order) { const fenv = { ...env, HID: id }; try { const cfg = await getConfig(fenv); await Promise.all([getEvents(fenv, cfg, req, true), cached(fenv, wxKey(cfg), 0, () => H.fetchWeather(cfg), true), morningBriefing(fenv, cfg, req), payDayNotice(fenv, cfg, req).catch(() => {})]); } catch {} } })());
   },
   async fetch(req, env, ctx) {
@@ -650,8 +656,7 @@ export default {
         await env.DB.prepare('UPDATE reward_requests SET status=?, decided_at=? WHERE id=? AND household_id=?').bind(body.approve ? 'approved' : 'denied', nowIso(), rq.id, env.HID).run(); return json({ ok: true });
       }
       if (path.startsWith('/api/photo/') && method === 'GET') {
-        const ph = await env.DB.prepare('SELECT data, mime FROM photos WHERE id=? AND household_id=?').bind(+path.split('/')[3], env.HID).first(); if (!ph) return err('no photo', 404);
-        const bin = Uint8Array.from(atob(ph.data), (c) => c.charCodeAt(0)); return new Response(bin, { headers: { 'content-type': ph.mime, 'cache-control': 'private, max-age=31536000, immutable' } });
+        return (await PH.photoResponse(env, +path.split('/')[3])) || err('no photo', 404);
       }
       // ---- kids' bank ----
       if (path === '/api/bank/payday' && method === 'POST') return collectPay(env, cfg, req, url, body);
@@ -677,9 +682,9 @@ export default {
       }
       if (path === '/api/photo' && method === 'POST') {
         if (!admin()) return denyAdmin(req); const data = String(body.data || '').replace(/^data:[^,]+,/, ''); if (!data || data.length > 1400000) return err('photo too large');
-        const r = await env.DB.prepare('INSERT INTO photos(data,mime,w,h,added_by,created_at,household_id) VALUES(?,?,?,?,?,?,?)').bind(data, body.mime || 'image/jpeg', body.w || null, body.h || null, body.by || null, nowIso(), env.HID).run(); return json({ ok: true, id: r.meta.last_row_id });
+        const id = await PH.addPhoto(env, { data, mime: body.mime || 'image/jpeg', w: body.w || null, h: body.h || null, by: body.by || null, now: nowIso() }); return json({ ok: true, id });
       }
-      if (path.startsWith('/api/photo/') && method === 'DELETE') { if (!admin()) return denyAdmin(req); await env.DB.prepare('DELETE FROM photos WHERE id=? AND household_id=?').bind(+path.split('/')[3], env.HID).run(); return json({ ok: true }); }
+      if (path.startsWith('/api/photo/') && method === 'DELETE') { if (!admin()) return denyAdmin(req); await PH.deletePhoto(env, +path.split('/')[3]); return json({ ok: true }); }
       if (path === '/api/push/key') return json({ publicKey: (await vapidKeys(env)).publicKey });
       // The kitchen screen sends the grocery list, today's plan or a note to the grown-ups' phones.
       if (path === '/api/push/send' && method === 'POST') {
